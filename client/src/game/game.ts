@@ -4,7 +4,7 @@ import {
   type ItemType, type LevelData, type PlayerInfo, type S2C,
 } from 'shared';
 import { initPhysics, RAPIER as R_NS, GROUP_PLAYER, GROUP_LEVEL, groups } from './physics';
-import { buildLevel, type LevelHandles } from './levelBuilder';
+import { buildLevel, occlusionUniforms, type LevelHandles } from './levelBuilder';
 import { Environment } from './environment';
 import { LocalPlayer } from './localPlayer';
 import { RemotePlayer } from './remotePlayer';
@@ -128,7 +128,7 @@ export class Game {
 
     this.ragdolls = new RagdollManager(this.world, R, this.scene);
     this.grab = new GrabSystem(this.scene);
-    this.cam = new FollowCamera(this.world, R, window.innerWidth / window.innerHeight);
+    this.cam = new FollowCamera(window.innerWidth / window.innerHeight);
 
     this.bindNet();
     window.addEventListener('resize', this.onResize);
@@ -229,7 +229,7 @@ export class Game {
       on('rope', (msg) => {
         this.handles.addRope({ x: msg.top[0], y: msg.top[1], z: msg.top[2] }, msg.length);
         sfx.grapple();
-        this.hud.toast(`${this.nameOf(msg.by)} threw a grappling rope! Press E to climb it`);
+        this.hud.toast(`${this.nameOf(msg.by)} threw a grappling rope! Jump on to climb it`);
       }),
       on('grab', (msg) => {
         this.grab.set(msg.from, msg.target, msg.on);
@@ -427,7 +427,8 @@ export class Game {
 
     // camera + environment + visuals
     const zoomActive = this.inventory === 'telescope' && this.input.zoomHeld;
-    this.cam.update(dt, myPos, this.input, this.local.body, zoomActive);
+    this.cam.update(dt, myPos, this.input, zoomActive);
+    this.updateOcclusionFade(myPos);
     this.env.update(myPos, this.level.totalHeight);
     this.handles.updateVisuals(this.elapsed);
     const now = performance.now();
@@ -610,6 +611,22 @@ export class Game {
 
     // double jump item is passive
     this.local.hasDoubleJump = this.inventory === 'doublejump';
+  }
+
+  /** Feed the occlusion-fade shader the player's screen position, view depth, and cutout radius. */
+  private updateOcclusionFade(myPos: THREE.Vector3) {
+    const cam = this.cam.camera;
+    cam.updateMatrixWorld();
+    cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    const center = myPos.clone();
+    center.y += 0.2;
+    const depth = -center.clone().applyMatrix4(cam.matrixWorldInverse).z;
+    const ndc = center.project(cam);
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    occlusionUniforms.uOccDepth.value = depth;
+    occlusionUniforms.uOccCenter.value.set((ndc.x * 0.5 + 0.5) * size.x, (ndc.y * 0.5 + 0.5) * size.y);
+    const halfFovTan = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    occlusionUniforms.uOccRadius.value = (1.4 / Math.max(1, depth) / halfFovTan) * (size.y / 2);
   }
 
   private resize() {

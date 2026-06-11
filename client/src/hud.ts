@@ -42,7 +42,7 @@ export class Hud {
       <div class="hud-item" style="display:none"></div>
       <div class="hud-help">
         <b>WASD</b> move &nbsp;<b>Space</b> jump &nbsp;<b>Mouse</b> look<br>
-        <b>E</b> climb ropes/ladders &nbsp;<b>F</b> hold hands &nbsp;<b>Z</b> dive<br>
+        ropes/ladders grab on touch &nbsp;<b>E</b> let go &nbsp;<b>F</b> hold hands &nbsp;<b>Z</b> dive<br>
         <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping
       </div>
       <div class="click-to-play" style="display:none">Click to look around 🔍</div>

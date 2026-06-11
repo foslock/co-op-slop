@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import { GROUP_LEVEL, GROUP_PLAYER, groups } from './physics';
 import type { Input } from '../input';
 
 const SENS = 0.0024;
@@ -8,19 +6,18 @@ const DIST = 5.6;
 const BASE_FOV = 72;
 const ZOOM_FOV = 20;
 
+// Third-person follow camera. Keeps a fixed distance — geometry between the
+// camera and the player is handled by the occlusion-fade shader (see
+// levelBuilder's patchOcclusionFade), not by pulling the camera in.
 export class FollowCamera {
   camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = -0.25;
   zoom = 0; // 0..1 telescope zoom blend
-  private world: RAPIER.World;
-  private R: typeof RAPIER;
   private smoothTarget = new THREE.Vector3();
   private initialized = false;
 
-  constructor(world: RAPIER.World, R: typeof RAPIER, aspect: number) {
-    this.world = world;
-    this.R = R;
+  constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, aspect, 0.1, 600);
   }
 
@@ -39,7 +36,7 @@ export class FollowCamera {
     );
   }
 
-  update(dt: number, target: THREE.Vector3, input: Input, excludeBody: RAPIER.RigidBody, zoomActive: boolean) {
+  update(dt: number, target: THREE.Vector3, input: Input, zoomActive: boolean) {
     const { dx, dy } = input.consumeMouse();
     const sens = SENS * (1 - this.zoom * 0.8);
     this.yaw -= dx * sens;
@@ -58,11 +55,7 @@ export class FollowCamera {
     head.y += 0.45;
 
     const dir = this.aimDir().negate(); // from head toward camera
-    let dist = DIST * (1 - this.zoom * 0.85);
-    const ray = new this.R.Ray({ x: head.x, y: head.y, z: head.z }, { x: dir.x, y: dir.y, z: dir.z });
-    const hit = this.world.castRay(ray, dist + 0.3, true, undefined, groups(GROUP_PLAYER, GROUP_LEVEL), undefined, excludeBody);
-    if (hit) dist = Math.max(0.6, hit.timeOfImpact - 0.3);
-
+    const dist = DIST * (1 - this.zoom * 0.85);
     this.camera.position.copy(head).addScaledVector(dir, dist);
     this.camera.lookAt(head);
   }

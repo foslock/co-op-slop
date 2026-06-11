@@ -3,6 +3,7 @@ import type { PlayerInfo } from 'shared';
 import { Net } from './net';
 import { UI } from './screens';
 import { Game } from './game/game';
+import { MenuBackground } from './menuBackground';
 import { unlockAudio } from './audio';
 
 const gameContainer = document.getElementById('game')!;
@@ -28,6 +29,21 @@ const ui = new UI(uiRoot, {
 
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 
+let menuBg: MenuBackground | null = null;
+
+function startMenuBg() {
+  if (!menuBg) {
+    menuBg = new MenuBackground(gameContainer);
+    void menuBg.start();
+    (window as unknown as Record<string, unknown>).__menuBg = menuBg;
+  }
+}
+
+function stopMenuBg() {
+  menuBg?.dispose();
+  menuBg = null;
+}
+
 function teardownGame() {
   game?.dispose();
   game = null;
@@ -39,6 +55,7 @@ function goHome(message?: string) {
   net = null;
   appState = 'home';
   ui.showHome();
+  startMenuBg();
   if (message) ui.errorToast(message);
 }
 
@@ -70,6 +87,7 @@ function bindNet(n: Net) {
     hostId = msg.hostId;
     players = msg.players;
     appState = 'lobby';
+    stopMenuBg();
     ui.showLobby(roomCode);
     ui.updateLobby(players, hostId, myId, msg.seed);
   });
@@ -117,3 +135,4 @@ async function startGame(seed: string) {
 }
 
 ui.showHome();
+startMenuBg();

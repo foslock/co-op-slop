@@ -128,7 +128,7 @@ export class LocalPlayer {
       if (input.consumePress('KeyE') || jumpOff) {
         // let go (jump pushes away)
         this.jumpBufferedAt = -10;
-        this.climbCooldownUntil = this.time + 0.45;
+        this.climbCooldownUntil = this.time + 0.7;
         this.vel.set(0, jumpOff ? MOVE.jumpVelocity * 0.8 : 0, 0);
         if (jumpOff) {
           this.vel.addScaledVector(ctx.forward, 3.5);
@@ -142,7 +142,7 @@ export class LocalPlayer {
         target.y = line.b.y + 0.4;
         this.teleport(target);
         this.vel.y = 2.5;
-        this.climbCooldownUntil = this.time + 0.45;
+        this.climbCooldownUntil = this.time + 0.7;
       } else {
         this.climb.t = Math.max(0, this.climb.t);
         const p = line.a.clone().lerp(line.b, this.climb.t);
@@ -156,10 +156,10 @@ export class LocalPlayer {
       }
     }
 
-    // ---- attach to a rope/ladder ----
-    if (!this.climb && input.consumePress('KeyE') && this.time > this.climbCooldownUntil) {
+    // ---- attach to a rope/ladder (automatic when close enough) ----
+    if (!this.climb && this.time > this.climbCooldownUntil) {
       let best: Climbable | null = null;
-      let bestD = 1.3;
+      let bestD = 1.1;
       for (const c of ctx.climbables) {
         if (pos.y < c.a.y - 0.6 || pos.y > c.b.y + 0.6) continue;
         const d = Math.hypot(pos.x - c.a.x, pos.z - c.a.z);
@@ -169,11 +169,19 @@ export class LocalPlayer {
         }
       }
       if (best) {
-        const len = best.b.y - best.a.y;
-        this.climb = { line: best, t: THREE.MathUtils.clamp((pos.y - 0.5 - best.a.y) / len, 0, 0.97) };
-        this.vel.set(0, 0, 0);
-        this.anim = ANIM.climb;
-        return events;
+        // airborne players always latch on; grounded players only when moving
+        // toward it, so walking past a ladder base doesn't yank you onto it
+        const toX = best.a.x - pos.x;
+        const toZ = best.a.z - pos.z;
+        const toLen = Math.hypot(toX, toZ) || 1;
+        const toward = (this.vel.x * toX + this.vel.z * toZ) / toLen;
+        if (!this.grounded || toward > 0.6) {
+          const len = best.b.y - best.a.y;
+          this.climb = { line: best, t: THREE.MathUtils.clamp((pos.y - 0.5 - best.a.y) / len, 0, 0.97) };
+          this.vel.set(0, 0, 0);
+          this.anim = ANIM.climb;
+          return events;
+        }
       }
     }
 

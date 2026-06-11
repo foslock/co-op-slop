@@ -86,6 +86,11 @@ export class UI {
     `);
     const nameEl = s.querySelector<HTMLInputElement>('#name')!;
     const codeEl = s.querySelector<HTMLInputElement>('#code')!;
+    // remember the nickname as it's typed, not just on create/join
+    nameEl.addEventListener('input', () => {
+      this.name = nameEl.value.trim();
+      this.saveProfile();
+    });
     const grabName = (): string | null => {
       const n = nameEl.value.trim();
       if (!n) {

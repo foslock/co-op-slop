@@ -25,7 +25,7 @@ stops when the last teammate arrives.
 | --- | --- |
 | WASD + mouse | Move / look |
 | Space | Jump |
-| E | Grab / release ropes and ladders |
+| E | Let go of a rope/ladder (grabbing is automatic when you touch one) |
 | F | Hold hands with a nearby teammate |
 | Q | Use item (grappling hook) |
 | Right click (hold) | Telescope zoom |

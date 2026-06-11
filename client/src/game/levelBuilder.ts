@@ -29,6 +29,44 @@ export interface ItemVisual {
 const EXTEND_DROP = 7;
 const EXTEND_TIME = 1.6;
 
+// ---- camera occlusion fade ----
+// Level geometry is merged into a handful of meshes, so we can't fade single
+// props via material opacity. Instead every level material gets a shader patch:
+// fragments that are closer to the camera than the player AND inside a
+// screen-space circle around the player are screen-door dithered away, so the
+// camera never has to pull in. Uniform objects are shared by all materials and
+// updated once per frame by the game loop.
+export const occlusionUniforms = {
+  uOccCenter: { value: new THREE.Vector2(-10000, -10000) }, // player center, device px
+  uOccDepth: { value: 1e9 }, // player view-space depth
+  uOccRadius: { value: 0 }, // cutout radius, device px
+};
+
+export function patchOcclusionFade(mat: THREE.Material) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uOccCenter = occlusionUniforms.uOccCenter;
+    shader.uniforms.uOccDepth = occlusionUniforms.uOccDepth;
+    shader.uniforms.uOccRadius = occlusionUniforms.uOccRadius;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'void main() {',
+      `uniform vec2 uOccCenter;
+uniform float uOccDepth;
+uniform float uOccRadius;
+void main() {
+	float occKeep = 1.0;
+	float occDist = distance(gl_FragCoord.xy, uOccCenter);
+	if (vViewPosition.z < uOccDepth - 0.5 && occDist < uOccRadius) {
+		occKeep = mix(0.22, 1.0, smoothstep(uOccRadius * 0.55, uOccRadius, occDist));
+	}
+	occKeep *= clamp(vViewPosition.z / 1.4, 0.1, 1.0); // also thin out geometry hugging the lens
+	if (occKeep < 0.999) {
+		float occNoise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+		if (occNoise > occKeep) discard;
+	}`,
+    );
+  };
+}
+
 // The deck is a parentless (static) collider teleported along its path each step.
 // A kinematic body would be the textbook approach, but Rapier 0.14's character
 // controller cannot slide along a *resting* kinematic collider (its slide solver
@@ -177,6 +215,7 @@ export function buildLevel(
     for (const g of geos) g.dispose();
     if (!merged) continue;
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.82 });
+    patchOcclusionFade(mat);
     const mesh = new THREE.Mesh(merged, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -186,6 +225,7 @@ export function buildLevel(
 
   const sharedMat = (color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}) => {
     const m = new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...opts });
+    patchOcclusionFade(m);
     disposables.push(m);
     return m;
   };
@@ -293,7 +333,9 @@ export function buildLevel(
       bridgeByCollider.set(col.handle, bridge);
 
       g.plates.forEach((pp, idx) => {
-        const mesh = new THREE.Mesh(plateGeo, plateMatOff.clone());
+        const plateMat = plateMatOff.clone(); // Material.clone() drops onBeforeCompile — re-patch
+        patchOcclusionFade(plateMat);
+        const mesh = new THREE.Mesh(plateGeo, plateMat);
         disposables.push(mesh.material as THREE.Material);
         mesh.position.set(pp.x, pp.y + 0.08, pp.z);
         mesh.receiveShadow = true;
