@@ -2,7 +2,7 @@ services:
   - type: web
     name: only-us
     runtime: node
-    branch: production
+    branch: main
     plan: starter
     buildCommand: npm ci && npm run build
     startCommand: npm start
