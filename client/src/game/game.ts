@@ -237,8 +237,9 @@ export class Game {
       on('knock', (msg) => {
         if (msg.player === this.myId) return;
         const rp = this.remotes.get(msg.player);
-        if (rp) {
-          this.ragdolls.spawn(msg.player, rp.pos.clone(), new THREE.Vector3(...msg.vel), rp.rig.color, GAME.ragdollTimeMs + 600);
+        const info = this.players.find((q) => q.id === msg.player);
+        if (rp && info) {
+          this.ragdolls.spawn(msg.player, rp.pos.clone(), new THREE.Vector3(...msg.vel), info.cosmetics, GAME.ragdollTimeMs + 600);
         }
       }),
       on('ping', (msg) => {
@@ -304,7 +305,7 @@ export class Game {
     if (this.local.ragdolling) return;
     this.local.ragdolling = true;
     this.localRig.group.visible = false;
-    this.ragdolls.spawn(this.myId, this.local.pos().clone(), vel, this.localRig.color);
+    this.ragdolls.spawn(this.myId, this.local.pos().clone(), vel, this.me().cosmetics);
     this.net.send({ t: 'knock', vel: [vel.x, vel.y, vel.z] });
   }
 

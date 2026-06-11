@@ -29,20 +29,26 @@ export interface ItemVisual {
 const EXTEND_DROP = 7;
 const EXTEND_TIME = 1.6;
 
+// The deck is a parentless (static) collider teleported along its path each step.
+// A kinematic body would be the textbook approach, but Rapier 0.14's character
+// controller cannot slide along a *resting* kinematic collider (its slide solver
+// hits the iteration cap on the contact and returns zero movement), which froze
+// players walking on extended bridges. Static colliders behave exactly like the
+// rest of the level; riders are carried via frameDeltaY in the player controller.
 export class Bridge {
   id: number;
   mode: string;
-  body: RAPIER.RigidBody;
+  collider: RAPIER.Collider;
   mesh: THREE.Mesh;
   baseY: number;
   ext = 0;
   frameDeltaY = 0;
   state: GadgetState | null = null;
 
-  constructor(id: number, mode: string, body: RAPIER.RigidBody, mesh: THREE.Mesh, baseY: number) {
+  constructor(id: number, mode: string, collider: RAPIER.Collider, mesh: THREE.Mesh, baseY: number) {
     this.id = id;
     this.mode = mode;
-    this.body = body;
+    this.collider = collider;
     this.mesh = mesh;
     this.baseY = baseY;
   }
@@ -51,15 +57,19 @@ export class Bridge {
   step(dt: number) {
     const target = this.state?.active ? 1 : 0;
     const prevY = this.baseY - (1 - this.ext) * EXTEND_DROP;
-    this.ext = THREE.MathUtils.clamp(this.ext + (target > this.ext ? 1 : -1) * (dt / EXTEND_TIME), 0, 1);
+    // move toward the target and stop exactly on it (never overshoot and bounce back)
+    const maxStep = dt / EXTEND_TIME;
+    this.ext = THREE.MathUtils.clamp(this.ext + THREE.MathUtils.clamp(target - this.ext, -maxStep, maxStep), 0, 1);
     const newY = this.baseY - (1 - this.ext) * EXTEND_DROP;
     this.frameDeltaY = newY - prevY;
-    const t = this.body.translation();
-    this.body.setNextKinematicTranslation({ x: t.x, y: newY, z: t.z });
+    if (this.frameDeltaY !== 0) {
+      const t = this.collider.translation();
+      this.collider.setTranslation({ x: t.x, y: newY, z: t.z });
+    }
   }
 
   syncMesh() {
-    const t = this.body.translation();
+    const t = this.collider.translation();
     this.mesh.position.set(t.x, t.y, t.z);
   }
 }
@@ -270,16 +280,14 @@ export function buildLevel(
       mesh.rotation.y = -g.rotY;
       group.add(mesh);
       const startY = g.near.y - 0.2 - EXTEND_DROP;
-      const body = world.createRigidBody(
-        R.RigidBodyDesc.kinematicPositionBased()
-          .setTranslation(center.x, startY, center.z)
-          .setRotation({ x: 0, y: Math.sin(-g.rotY / 2), z: 0, w: Math.cos(-g.rotY / 2) }),
-      );
       const col = world.createCollider(
-        R.ColliderDesc.cuboid(g.length / 2, 0.2, 0.95).setCollisionGroups(levelGroups).setFriction(0.9),
-        body,
+        R.ColliderDesc.cuboid(g.length / 2, 0.2, 0.95)
+          .setTranslation(center.x, startY, center.z)
+          .setRotation({ x: 0, y: Math.sin(-g.rotY / 2), z: 0, w: Math.cos(-g.rotY / 2) })
+          .setCollisionGroups(levelGroups)
+          .setFriction(0.9),
       );
-      const bridge = new Bridge(g.id, g.mode, body, mesh, g.near.y - 0.2);
+      const bridge = new Bridge(g.id, g.mode, col, mesh, g.near.y - 0.2);
       mesh.position.set(center.x, startY, center.z);
       bridges.set(g.id, bridge);
       bridgeByCollider.set(col.handle, bridge);

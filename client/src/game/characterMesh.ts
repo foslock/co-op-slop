@@ -30,7 +30,12 @@ function makeNameSprite(name: string, color: number): THREE.Sprite {
   return sprite;
 }
 
-export function buildCharacter(cos: Cosmetics, nameLabel?: string): CharacterRig {
+/**
+ * Builds the bean character. With `withLimbs: false` it returns just the core
+ * (body, belly, eyes, hat) — used as the ragdoll torso so knockdowns keep the
+ * same blobby look instead of swapping to generic shapes.
+ */
+export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = true): CharacterRig {
   const color = COSMETIC_COLORS[cos.color % COSMETIC_COLORS.length];
   const group = new THREE.Group();
   const mats: THREE.Material[] = [];
@@ -91,10 +96,16 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string): CharacterRig
     group.add(pivot);
     return pivot;
   };
-  const armL = limb(0.07, 0.2, -0.33, 0.16);
-  const armR = limb(0.07, 0.2, 0.33, 0.16);
-  const legL = limb(0.09, 0.17, -0.14, -0.3);
-  const legR = limb(0.09, 0.17, 0.14, -0.3);
+  let armL: THREE.Group | null = null;
+  let armR: THREE.Group | null = null;
+  let legL: THREE.Group | null = null;
+  let legR: THREE.Group | null = null;
+  if (withLimbs) {
+    armL = limb(0.07, 0.2, -0.33, 0.16);
+    armR = limb(0.07, 0.2, 0.33, 0.16);
+    legL = limb(0.09, 0.17, -0.14, -0.3);
+    legR = limb(0.09, 0.17, 0.14, -0.3);
+  }
 
   // hat
   const hatGroup = new THREE.Group();
@@ -150,6 +161,7 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string): CharacterRig
   if (nameLabel) group.add(makeNameSprite(nameLabel, color));
 
   const animate = (anim: number, time: number, speed: number, vy: number) => {
+    if (!armL || !armR || !legL || !legR) return;
     if (anim === ANIM.run) {
       const ph = time * Math.min(11, 5 + speed);
       armL.rotation.x = Math.sin(ph) * 0.9;
