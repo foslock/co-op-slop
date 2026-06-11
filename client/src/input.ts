@@ -10,6 +10,7 @@ export class Input {
   dragMode = false; // pointer lock unavailable → hold LMB and drag to look
   onLockFallback: (() => void) | null = null;
   private dragging = false;
+  private everLocked = false;
   private pressed = new Set<string>(); // edge-triggered keys consumed once
   private el: HTMLElement;
   private detach: (() => void)[] = [];
@@ -39,6 +40,7 @@ export class Input {
     const ctx = (e: Event) => e.preventDefault();
     const plc = () => {
       this.locked = document.pointerLockElement === this.el;
+      if (this.locked) this.everLocked = true;
       if (!this.locked) {
         this.keys.clear();
         this.zoomHeld = false;
@@ -83,7 +85,9 @@ export class Input {
   }
 
   private enableDragFallback() {
-    if (this.dragMode) return;
+    // If pointer lock has ever worked, a rejection is transient (e.g. Chrome's
+    // cooldown right after an Escape exit) — don't switch modes permanently.
+    if (this.dragMode || this.everLocked) return;
     this.dragMode = true;
     this.onLockFallback?.();
   }

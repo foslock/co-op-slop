@@ -118,11 +118,20 @@ async function startGame(seed: string) {
   appState = 'loading';
   teardownGame();
   ui.showLoading('Building the tower…');
-  game = new Game(gameContainer, uiRoot, net, seed, players, myId, (info) => {
-    appState = 'results';
-    document.exitPointerLock();
-    ui.showResults(info, players, myId === hostId);
-  });
+  game = new Game(
+    gameContainer,
+    uiRoot,
+    net,
+    seed,
+    players,
+    myId,
+    (info) => {
+      appState = 'results';
+      document.exitPointerLock();
+      ui.showResults(info, players, myId === hostId);
+    },
+    () => goHome(),
+  );
   try {
     await game.init();
   } catch (err) {

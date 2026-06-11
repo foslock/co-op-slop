@@ -33,6 +33,7 @@ export class Game {
   private myId: string;
   private players: PlayerInfo[];
   private onFinish: (info: FinishInfo) => void;
+  private onLeave: () => void;
 
   private renderer!: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -64,6 +65,8 @@ export class Game {
   private pingMarkers: { sprite: THREE.Sprite; until: number }[] = [];
   private lastStateSentAt = 0;
   private goPlayed = false;
+  private paused = false;
+  private prevLocked = false;
 
   constructor(
     container: HTMLElement,
@@ -73,14 +76,38 @@ export class Game {
     players: PlayerInfo[],
     myId: string,
     onFinish: (info: FinishInfo) => void,
+    onLeave: () => void,
   ) {
     this.container = container;
     this.net = net;
     this.myId = myId;
     this.players = players;
     this.onFinish = onFinish;
+    this.onLeave = onLeave;
     this.level = generateLevel(seed);
-    this.hud = new Hud(uiRoot, () => this.input.requestLock());
+    this.hud = new Hud(uiRoot, {
+      onClickToPlay: () => this.input.requestLock(),
+      onResume: () => this.closePause(true),
+      onLeave: () => {
+        this.net.send({ t: 'leave' });
+        this.onLeave();
+      },
+    });
+  }
+
+  private openPause() {
+    if (this.phase === 'done' || this.paused) return;
+    this.paused = true;
+    this.input.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.hud.showPause();
+  }
+
+  private closePause(relock: boolean) {
+    if (!this.paused) return;
+    this.paused = false;
+    this.hud.hidePause();
+    if (relock) this.input.requestLock();
   }
 
   me(): PlayerInfo {
@@ -259,6 +286,7 @@ export class Game {
       on('finish', (msg) => {
         this.phase = 'done';
         this.local.control = false;
+        this.closePause(false);
         sfx.finish();
         document.exitPointerLock();
         this.onFinish(msg);
@@ -341,6 +369,15 @@ export class Game {
         sfx.countdown(true);
       }
     }
+
+    // pause menu: Escape in drag-look mode, or the browser's pointer-lock exit
+    // (Esc never reaches the page while locked — we see the unlock instead)
+    if (this.input.consumePress('Escape')) {
+      if (this.paused) this.closePause(false);
+      else this.openPause();
+    }
+    if (this.prevLocked && !this.input.locked && !this.paused) this.openPause();
+    this.prevLocked = this.input.locked;
 
     const { forward, right } = this.cam.basis();
 
@@ -467,7 +504,7 @@ export class Game {
         };
       }),
     );
-    this.hud.setPointerLocked(this.input.lookActive, this.phase !== 'done');
+    this.hud.setPointerLocked(this.input.lookActive, this.phase !== 'done' && !this.paused);
 
     // outbound state @ 20Hz
     if (now - this.lastStateSentAt > 1000 / NET.sendHz) {

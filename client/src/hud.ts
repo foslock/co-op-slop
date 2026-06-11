@@ -14,6 +14,12 @@ export function formatTime(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
+export interface HudCallbacks {
+  onClickToPlay: () => void;
+  onResume: () => void;
+  onLeave: () => void;
+}
+
 export class Hud {
   root: HTMLDivElement;
   private timer: HTMLDivElement;
@@ -24,9 +30,10 @@ export class Hud {
   private center: HTMLDivElement;
   private toasts: HTMLDivElement;
   private clickOverlay: HTMLDivElement;
+  private pauseEl: HTMLDivElement;
   private lastCountdown = -1;
 
-  constructor(parent: HTMLElement, onClickToPlay: () => void) {
+  constructor(parent: HTMLElement, callbacks: HudCallbacks) {
     this.root = document.createElement('div');
     this.root.innerHTML = `
       <div class="hud-top">
@@ -46,6 +53,16 @@ export class Hud {
         <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping
       </div>
       <div class="click-to-play" style="display:none">Click to look around 🔍</div>
+      <div class="pause-overlay" style="display:none">
+        <div class="panel" style="align-items:center;min-width:320px">
+          <h2>⏸ PAUSED</h2>
+          <div style="color:var(--muted);font-size:13px;text-align:center">
+            The climb keeps going for your team —<br>the timer doesn't stop!
+          </div>
+          <button id="resume" style="width:100%">Resume</button>
+          <button id="leave" class="secondary" style="width:100%">Leave Game</button>
+        </div>
+      </div>
     `;
     parent.appendChild(this.root);
     this.timer = this.root.querySelector('.hud-timer')!;
@@ -56,7 +73,18 @@ export class Hud {
     this.center = this.root.querySelector('.hud-center')!;
     this.toasts = this.root.querySelector('.toast')!;
     this.clickOverlay = this.root.querySelector('.click-to-play')!;
-    this.clickOverlay.addEventListener('click', onClickToPlay);
+    this.clickOverlay.addEventListener('click', callbacks.onClickToPlay);
+    this.pauseEl = this.root.querySelector('.pause-overlay')!;
+    this.pauseEl.querySelector('#resume')!.addEventListener('click', callbacks.onResume);
+    this.pauseEl.querySelector('#leave')!.addEventListener('click', callbacks.onLeave);
+  }
+
+  showPause() {
+    this.pauseEl.style.display = 'flex';
+  }
+
+  hidePause() {
+    this.pauseEl.style.display = 'none';
   }
 
   setTimer(ms: number) {
