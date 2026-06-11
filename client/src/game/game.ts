@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  ANIM, COSMETIC_COLORS, GAME, NET, generateLevel,
+  ANIM, COSMETIC_COLORS, GAME, NET, generateLevel, gravityScaleAtY,
   type ItemType, type LevelData, type PlayerInfo, type S2C,
 } from 'shared';
 import { initPhysics, RAPIER as R_NS, GROUP_PLAYER, GROUP_LEVEL, groups } from './physics';
@@ -266,7 +266,10 @@ export class Game {
         const rp = this.remotes.get(msg.player);
         const info = this.players.find((q) => q.id === msg.player);
         if (rp && info) {
-          this.ragdolls.spawn(msg.player, rp.pos.clone(), new THREE.Vector3(...msg.vel), info.cosmetics, GAME.ragdollTimeMs + 600);
+          this.ragdolls.spawn(
+            msg.player, rp.pos.clone(), new THREE.Vector3(...msg.vel), info.cosmetics,
+            GAME.ragdollTimeMs + 600, gravityScaleAtY(rp.pos.y, this.level.zones),
+          );
         }
       }),
       on('ping', (msg) => {
@@ -333,7 +336,8 @@ export class Game {
     if (this.local.ragdolling) return;
     this.local.ragdolling = true;
     this.localRig.group.visible = false;
-    this.ragdolls.spawn(this.myId, this.local.pos().clone(), vel, this.me().cosmetics);
+    const pos = this.local.pos().clone();
+    this.ragdolls.spawn(this.myId, pos, vel, this.me().cosmetics, GAME.ragdollTimeMs, gravityScaleAtY(pos.y, this.level.zones));
     this.net.send({ t: 'knock', vel: [vel.x, vel.y, vel.z] });
   }
 
@@ -380,6 +384,7 @@ export class Game {
     this.prevLocked = this.input.locked;
 
     const { forward, right } = this.cam.basis();
+    const gravityScale = gravityScaleAtY(this.local.pos().y, this.level.zones);
 
     // fixed-step simulation
     this.accumulator = Math.min(0.12, this.accumulator + dt);
@@ -393,6 +398,7 @@ export class Game {
         bridgeByCollider: this.handles.bridgeByCollider,
         climbables: this.handles.climbables,
         tetherTo: this.tetherTo,
+        gravityScale,
       });
       this.world.step();
       for (const ev of events) {
@@ -492,7 +498,7 @@ export class Game {
       this.hud.setTimer(serverNow - this.startAt);
     }
     const zone = this.level.zones.find((z) => myPos.y <= z.yEnd + 2) ?? this.level.zones[this.level.zones.length - 1];
-    this.hud.setZoneInfo(zone?.label ?? '', myPos.y, this.level.totalHeight);
+    this.hud.setZoneInfo(zone?.label ?? '', myPos.y, this.level.totalHeight, gravityScale);
     this.hud.setTeam(
       this.players.map((p) => {
         const pos = this.posOf(p.id);

@@ -48,3 +48,34 @@ export const HATS = ['none', 'cap', 'cone', 'crown', 'chef', 'halo'] as const;
 export const EYES = ['round', 'happy', 'sleepy'] as const;
 
 export const ANIM = { idle: 0, run: 1, air: 2, climb: 3, ragdoll: 4 } as const;
+
+// ---- altitude gravity ----
+// The air thins as you climb: gravity eases from 100% at ground level to 55%
+// in deep space, making jumps higher and floatier. The level generator widens
+// gaps using a *damped* version of the gained jump range, so late zones get
+// harder but never outrun what the physics allows.
+import type { ZoneData } from './types';
+
+/** Gravity multiplier at a (fractional) zone index: zone 0 → 1.0, zone 9+ → 0.55. */
+export function gravityScaleAtZone(zone: number): number {
+  return Math.max(0.55, 1 - zone * 0.05);
+}
+
+/** How much wider jumps/steps may be generated in a zone (damped vs. capability). */
+export function gapScaleAtZone(zone: number): number {
+  return 1 + (1 / gravityScaleAtZone(zone) - 1) * 0.75;
+}
+
+/** Smooth gravity multiplier for a world-space height, from the level's zone table. */
+export function gravityScaleAtY(y: number, zones: ZoneData[]): number {
+  if (zones.length === 0) return 1;
+  let zp = 0;
+  for (const z of zones) {
+    if (y >= z.yEnd) zp = z.index + 1;
+    else if (y > z.yStart) {
+      zp = z.index + (y - z.yStart) / Math.max(1, z.yEnd - z.yStart);
+      break;
+    } else break;
+  }
+  return gravityScaleAtZone(zp);
+}

@@ -13,6 +13,7 @@ export interface StepCtx {
   bridgeByCollider: Map<number, Bridge>;
   climbables: Climbable[];
   tetherTo: THREE.Vector3 | null;
+  gravityScale: number; // altitude-based: 1.0 at ground level → 0.55 in space
 }
 
 export type PlayerEvent =
@@ -238,8 +239,8 @@ export class LocalPlayer {
       }
     }
 
-    // gravity
-    this.vel.y = Math.max(-32, this.vel.y - MOVE.gravity * dt);
+    // gravity (thinner air higher up — jumps get floatier as you climb)
+    this.vel.y = Math.max(-32, this.vel.y - MOVE.gravity * ctx.gravityScale * dt);
 
     // ride moving bridges
     let rideDY = 0;

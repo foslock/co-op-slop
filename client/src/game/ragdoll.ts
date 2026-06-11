@@ -22,7 +22,7 @@ export class Ragdoll {
   private core: CharacterRig;
   private disposables: (THREE.BufferGeometry | THREE.Material)[] = [];
 
-  constructor(world: RAPIER.World, R: typeof RAPIER, scene: THREE.Scene, pos: THREE.Vector3, vel: THREE.Vector3, cosmetics: Cosmetics, durationMs: number) {
+  constructor(world: RAPIER.World, R: typeof RAPIER, scene: THREE.Scene, pos: THREE.Vector3, vel: THREE.Vector3, cosmetics: Cosmetics, durationMs: number, gravityScale = 1) {
     this.world = world;
     this.until = performance.now() + durationMs;
     scene.add(this.group);
@@ -35,7 +35,8 @@ export class Ragdoll {
           .setLinvel(vel.x, vel.y, vel.z)
           .setAngvel({ x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 6 })
           .setLinearDamping(0.15)
-          .setAngularDamping(0.6),
+          .setAngularDamping(0.6)
+          .setGravityScale(gravityScale),
       );
 
     // torso = the character core itself
@@ -129,9 +130,9 @@ export class RagdollManager {
     this.scene = scene;
   }
 
-  spawn(playerId: string, pos: THREE.Vector3, vel: THREE.Vector3, cosmetics: Cosmetics, durationMs = GAME.ragdollTimeMs): Ragdoll {
+  spawn(playerId: string, pos: THREE.Vector3, vel: THREE.Vector3, cosmetics: Cosmetics, durationMs = GAME.ragdollTimeMs, gravityScale = 1): Ragdoll {
     this.remove(playerId);
-    const rd = new Ragdoll(this.world, this.R, this.scene, pos, vel, cosmetics, durationMs);
+    const rd = new Ragdoll(this.world, this.R, this.scene, pos, vel, cosmetics, durationMs, gravityScale);
     this.active.set(playerId, rd);
     sfx.knock();
     return rd;

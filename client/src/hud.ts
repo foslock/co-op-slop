@@ -91,9 +91,10 @@ export class Hud {
     this.timer.textContent = formatTime(ms);
   }
 
-  setZoneInfo(label: string, heightM: number, totalM: number) {
+  setZoneInfo(label: string, heightM: number, totalM: number, gravityScale = 1) {
     this.zone.textContent = label;
-    this.height.textContent = `${Math.max(0, heightM).toFixed(0)}m / ${totalM.toFixed(0)}m`;
+    const gravity = gravityScale < 0.995 ? ` · 🌙 gravity ${Math.round(gravityScale * 100)}%` : '';
+    this.height.textContent = `${Math.max(0, heightM).toFixed(0)}m / ${totalM.toFixed(0)}m${gravity}`;
   }
 
   setTeam(rows: { name: string; color: string; height: number; finished: boolean }[]) {

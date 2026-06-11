@@ -1,4 +1,4 @@
-import { MOVE } from './constants';
+import { MOVE, gapScaleAtZone, gravityScaleAtZone } from './constants';
 import { makeRng, type Rng } from './rng';
 import { ARCHETYPES, THEMES } from './themes';
 import type { CheckpointData, GadgetData, ItemSpawn, ItemType, LevelData, PropInstance, Vec3, ZoneData } from './types';
@@ -11,6 +11,7 @@ export interface PathStep {
   kind: 'jump' | 'gadget';
   gap: number; // edge-to-edge horizontal distance
   dy: number;
+  zone: number; // zone index — reachability limits scale with altitude gravity
 }
 
 interface GenState {
@@ -66,7 +67,7 @@ function placePlatform(s: GenState, theme: number, gap: number, dy: number, kind
     rotY,
     solid: true,
   });
-  s.steps.push({ from: { ...s.cur }, to: { ...top }, kind, gap, dy });
+  s.steps.push({ from: { ...s.cur }, to: { ...top }, kind, gap, dy, zone: theme });
   s.nodes.push({ ...top });
   s.cur = top;
   s.curR = arch.topRadius;
@@ -75,15 +76,17 @@ function placePlatform(s: GenState, theme: number, gap: number, dy: number, kind
 
 function placeJumpStep(s: GenState, theme: number) {
   const r = s.rng.float();
+  // low gravity higher up = bigger jumps; widen everything by the damped scale
+  const gs = gapScaleAtZone(theme);
   let gap: number, dy: number;
   if (r < 0.42) {
-    gap = s.rng.float(0.3, 1.0); dy = s.rng.float(0.9, 1.4); // step up
+    gap = s.rng.float(0.3, 1.0) * gs; dy = s.rng.float(0.9, 1.4) * gs; // step up
   } else if (r < 0.78) {
-    gap = s.rng.float(2.0, 3.0); dy = s.rng.float(-0.2, 0.5); // hop across
+    gap = s.rng.float(2.0, 3.0) * gs; dy = s.rng.float(-0.2, 0.5); // hop across
   } else if (r < 0.9) {
-    gap = s.rng.float(3.0, MOVE.maxGapDown - 0.3); dy = s.rng.float(-1.8, -0.6); // long hop down
+    gap = s.rng.float(3.0, MOVE.maxGapDown - 0.3) * gs; dy = s.rng.float(-1.8, -0.6); // long hop down
   } else {
-    gap = s.rng.float(0.2, 0.6); dy = s.rng.float(1.3, MOVE.maxStepUp); // tall step
+    gap = s.rng.float(0.2, 0.6); dy = s.rng.float(1.3, MOVE.maxStepUp) * gs; // tall step
   }
   placePlatform(s, theme, gap, dy, 'jump');
 }
@@ -96,7 +99,8 @@ function placeBridge(s: GenState, theme: number, zone: number) {
   // Far platform at the same height across a gap far too wide to jump.
   const themeDef = THEMES[theme];
   const farArchId = s.rng.pick(themeDef.pathProps.filter((p) => ARCHETYPES[p].pathable && ARCHETYPES[p].topRadius >= 1.1));
-  const span = s.rng.float(6.5, 9);
+  // scale by the FULL jump-range gain so floaty late-game jumps can't skip the bridge
+  const span = s.rng.float(6.5, 9) / gravityScaleAtZone(zone);
   const far = placePlatform(s, theme, span, 0, 'gadget', farArchId);
   const farR = s.curR;
   const dir = Math.atan2(far.z - near.z, far.x - near.x);
@@ -140,7 +144,7 @@ function placeItemBranch(s: GenState, theme: number, type: ItemType) {
   const arch = ARCHETYPES[archId];
   const side = s.rng.chance(0.5) ? 1 : -1;
   const dir = s.heading + side * s.rng.float(1.5, 1.9);
-  const gap = s.rng.float(2.2, 2.9);
+  const gap = s.rng.float(2.2, 2.9) * gapScaleAtZone(theme);
   const dist = gap + s.curR + arch.topRadius;
   const top = v(s.cur.x + Math.cos(dir) * dist, s.cur.y + s.rng.float(-0.4, 0.4), s.cur.z + Math.sin(dir) * dist);
   s.props.push({ archetype: archId, pos: v(top.x, top.y - arch.topY, top.z), rotY: s.rng.float(0, Math.PI * 2), solid: true });
@@ -254,15 +258,17 @@ export interface LevelIssue {
   msg: string;
 }
 
-// Sanity-check that every jump on the main path is humanly possible with MOVE constants.
+// Sanity-check that every jump on the main path is humanly possible with MOVE
+// constants, accounting for the per-zone gravity reduction.
 export function validateLevel(steps: PathStep[]): LevelIssue[] {
   const issues: LevelIssue[] = [];
   steps.forEach((st, i) => {
     if (st.kind !== 'jump') return;
-    if (st.dy > MOVE.maxStepUp + 0.05) issues.push({ step: i, msg: `step up ${st.dy.toFixed(2)}m exceeds ${MOVE.maxStepUp}` });
-    if (st.dy >= -0.5 && st.gap > MOVE.maxGapShort + 0.05) issues.push({ step: i, msg: `gap ${st.gap.toFixed(2)}m exceeds ${MOVE.maxGapShort}` });
-    if (st.dy < -0.5 && st.gap > MOVE.maxGapDown + 0.05) issues.push({ step: i, msg: `down-gap ${st.gap.toFixed(2)}m exceeds ${MOVE.maxGapDown}` });
-    if (st.dy > 0.6 && st.gap > 2.2) issues.push({ step: i, msg: `combined rise ${st.dy.toFixed(2)}m over gap ${st.gap.toFixed(2)}m too hard` });
+    const gs = gapScaleAtZone(st.zone);
+    if (st.dy > MOVE.maxStepUp * gs + 0.05) issues.push({ step: i, msg: `step up ${st.dy.toFixed(2)}m exceeds ${(MOVE.maxStepUp * gs).toFixed(2)} (zone ${st.zone})` });
+    if (st.dy >= -0.5 && st.gap > MOVE.maxGapShort * gs + 0.05) issues.push({ step: i, msg: `gap ${st.gap.toFixed(2)}m exceeds ${(MOVE.maxGapShort * gs).toFixed(2)} (zone ${st.zone})` });
+    if (st.dy < -0.5 && st.gap > MOVE.maxGapDown * gs + 0.05) issues.push({ step: i, msg: `down-gap ${st.gap.toFixed(2)}m exceeds ${(MOVE.maxGapDown * gs).toFixed(2)} (zone ${st.zone})` });
+    if (st.dy > 0.6 * gs && st.gap > 2.2 * gs) issues.push({ step: i, msg: `combined rise ${st.dy.toFixed(2)}m over gap ${st.gap.toFixed(2)}m too hard (zone ${st.zone})` });
   });
   return issues;
 }

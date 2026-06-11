@@ -13,6 +13,8 @@ stops when the last teammate arrives.
   Fall past your checkpoint and you respawn there.
 - **Teamwork gadgets** between platforms: pressure-plate bridges (later ones need a plate on each
   side, or two players standing at once), ladders, and climbing ropes.
+- **Thinning air**: gravity eases from 100% at ground level to 55% in deep space, so jumps get
+  higher and floatier as you climb — and the generator widens the gaps to match.
 - **Items** on out-of-the-way side platforms: Double Jump boots, a Telescope (hold right-click to
   zoom), and a Grappling Hook that hangs a rope everyone can climb. One item slot each — press
   **G** to hand your item to a nearby friend.
