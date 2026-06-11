@@ -67,6 +67,7 @@ export class Game {
   private goPlayed = false;
   private paused = false;
   private prevLocked = false;
+  private fallCounts = new Map<string, number>();
 
   constructor(
     container: HTMLElement,
@@ -228,7 +229,10 @@ export class Game {
         }
       }),
       on('fell', (msg) => {
-        if (msg.player !== this.myId) this.hud.toast(`${this.nameOf(msg.player)} fell! 💨`, 'bad');
+        if (msg.player !== this.myId) {
+          this.fallCounts.set(msg.player, (this.fallCounts.get(msg.player) ?? 0) + 1);
+          this.hud.toast(`${this.nameOf(msg.player)} fell! 💨`, 'bad');
+        }
       }),
       on('pickup', (msg) => {
         const item = this.handles.items.get(msg.item);
@@ -332,6 +336,14 @@ export class Game {
     this.pingMarkers.push({ sprite, until: performance.now() + 6000 });
   }
 
+  /** Count, announce, and report one of our own falls/resets to the server. */
+  private recordOwnFall(toastText: string) {
+    this.fallCounts.set(this.myId, (this.fallCounts.get(this.myId) ?? 0) + 1);
+    this.net.send({ t: 'fell' });
+    this.hud.toast(toastText, 'bad');
+    sfx.fell();
+  }
+
   private startLocalRagdoll(vel: THREE.Vector3) {
     if (this.local.ragdolling) return;
     this.local.ragdolling = true;
@@ -349,9 +361,7 @@ export class Game {
     this.localRig.group.visible = true;
     if (respawn) {
       this.local.teleport(this.local.checkpoint.pos);
-      this.net.send({ t: 'fell' });
-      this.hud.toast('You fell! Back to the checkpoint', 'bad');
-      sfx.fell();
+      this.recordOwnFall('You fell! Back to the checkpoint');
     } else {
       landing.y += 0.2;
       this.local.teleport(landing);
@@ -371,6 +381,7 @@ export class Game {
       if (!this.goPlayed) {
         this.goPlayed = true;
         sfx.countdown(true);
+        this.hud.toast('Press Esc for controls & pause');
       }
     }
 
@@ -382,6 +393,16 @@ export class Game {
     }
     if (this.prevLocked && !this.input.locked && !this.paused) this.openPause();
     this.prevLocked = this.input.locked;
+
+    // R: manual reset to the latest checkpoint (for when you're wedged somewhere)
+    if (this.phase === 'playing' && !this.paused && this.input.consumePress('KeyR')) {
+      if (this.local.ragdolling) {
+        this.endLocalRagdoll(true);
+      } else {
+        this.local.teleport(this.local.checkpoint.pos);
+        this.recordOwnFall('Reset to checkpoint');
+      }
+    }
 
     const { forward, right } = this.cam.basis();
     const gravityScale = gravityScaleAtY(this.local.pos().y, this.level.zones);
@@ -403,11 +424,7 @@ export class Game {
       this.world.step();
       for (const ev of events) {
         if (ev.type === 'knockdown') this.startLocalRagdoll(ev.vel);
-        else if (ev.type === 'fell') {
-          this.net.send({ t: 'fell' });
-          this.hud.toast('You fell! Back to the checkpoint', 'bad');
-          sfx.fell();
-        }
+        else if (ev.type === 'fell') this.recordOwnFall('You fell! Back to the checkpoint');
       }
     }
     for (const bridge of this.handles.bridges.values()) bridge.syncMesh();
@@ -466,6 +483,8 @@ export class Game {
       this.localRig.group.rotation.y = this.local.yaw;
       const hSpeed = Math.hypot(this.local.vel.x, this.local.vel.z);
       this.localRig.animate(this.local.anim, this.elapsed, hSpeed, this.local.vel.y);
+      // fade yourself out while the telescope zooms so you're not blocking the lens
+      this.localRig.setOpacity(1 - THREE.MathUtils.smoothstep(this.cam.zoom, 0.1, 0.6));
     }
 
     // camera + environment + visuals
@@ -507,6 +526,7 @@ export class Game {
           color: `#${this.colorOf(p.id).toString(16).padStart(6, '0')}`,
           height: pos?.y ?? 0,
           finished: this.finishedSet.has(p.id),
+          falls: this.fallCounts.get(p.id) ?? 0,
         };
       }),
     );

@@ -47,17 +47,19 @@ export class Hud {
       <div class="hud-center"></div>
       <div class="toast"></div>
       <div class="hud-item" style="display:none"></div>
-      <div class="hud-help">
-        <b>WASD</b> move &nbsp;<b>Space</b> jump &nbsp;<b>Mouse</b> look<br>
-        ropes/ladders grab on touch &nbsp;<b>E</b> let go &nbsp;<b>F</b> hold hands &nbsp;<b>Z</b> dive<br>
-        <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping
-      </div>
       <div class="click-to-play" style="display:none">Click to look around 🔍</div>
       <div class="pause-overlay" style="display:none">
-        <div class="panel" style="align-items:center;min-width:320px">
+        <div class="panel" style="align-items:center;min-width:360px">
           <h2>⏸ PAUSED</h2>
           <div style="color:var(--muted);font-size:13px;text-align:center">
             The climb keeps going for your team —<br>the timer doesn't stop!
+          </div>
+          <div class="pause-help">
+            <b>WASD</b> move &nbsp;<b>Space</b> jump &nbsp;<b>Mouse</b> look<br>
+            ropes/ladders grab on touch &nbsp;<b>E</b> let go<br>
+            <b>F</b> hold hands &nbsp;<b>Z</b> dive &nbsp;<b>R</b> reset to checkpoint<br>
+            <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping<br>
+            hold <b>Right Click</b> to zoom with the telescope
           </div>
           <button id="resume" style="width:100%">Resume</button>
           <button id="leave" class="secondary" style="width:100%">Leave Game</button>
@@ -97,11 +99,14 @@ export class Hud {
     this.height.textContent = `${Math.max(0, heightM).toFixed(0)}m / ${totalM.toFixed(0)}m${gravity}`;
   }
 
-  setTeam(rows: { name: string; color: string; height: number; finished: boolean }[]) {
-    this.team.innerHTML = rows
+  setTeam(rows: { name: string; color: string; height: number; finished: boolean; falls: number }[]) {
+    // wall of shame: most falls at the top
+    const sorted = [...rows].sort((a, b) => b.falls - a.falls);
+    this.team.innerHTML = sorted
       .map(
         (r) =>
           `<div class="hud-mate"><span>${r.finished ? '🚩 ' : ''}${r.name}</span>` +
+          `<span style="opacity:.8">💀${r.falls}</span>` +
           `<span style="opacity:.75">${r.height.toFixed(0)}m</span>` +
           `<span class="dot" style="background:${r.color}"></span></div>`,
       )

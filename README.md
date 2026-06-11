@@ -33,7 +33,9 @@ stops when the last teammate arrives.
 | Right click (hold) | Telescope zoom |
 | G | Give your item to a nearby teammate |
 | Z | Dive (deliberate ragdoll) |
+| R | Reset to your latest checkpoint (counts as a fall) |
 | B | Ping your location |
+| Esc | Pause menu (controls, leave game) |
 
 ## Architecture
 

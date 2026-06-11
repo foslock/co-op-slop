@@ -5,6 +5,8 @@ export interface CharacterRig {
   group: THREE.Group;
   color: number;
   animate(anim: number, time: number, speed: number, vy: number): void;
+  /** Fade the whole rig (1 = solid, 0 = hidden) — used for telescope zoom. */
+  setOpacity(o: number): void;
   dispose(): void;
 }
 
@@ -192,10 +194,19 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = t
     }
   };
 
+  const setOpacity = (o: number) => {
+    group.visible = o > 0.03;
+    for (const m of mats) {
+      m.transparent = o < 0.999;
+      m.opacity = o;
+      m.depthWrite = o >= 0.999; // ghostly but artifact-free while faded
+    }
+  };
+
   const dispose = () => {
     for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
   };
 
-  return { group, color, animate, dispose };
+  return { group, color, animate, setOpacity, dispose };
 }
