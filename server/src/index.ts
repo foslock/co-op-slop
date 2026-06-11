@@ -8,7 +8,17 @@ import { initDb, topRuns } from './db';
 import { Room, RoomManager } from './rooms';
 
 const PORT = Number(process.env.PORT ?? 3001);
-const STATIC_DIR = process.env.STATIC_DIR ?? path.join(process.cwd(), 'client', 'dist');
+
+// Locate the client build relative to this bundle (server/dist/index.cjs →
+// repo root/client/dist) with a cwd fallback, so deploys don't depend on the
+// working directory. __dirname only exists in the CJS production bundle.
+const BUNDLE_DIR = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+const STATIC_DIR =
+  process.env.STATIC_DIR ??
+  [path.join(BUNDLE_DIR, '..', '..', 'client', 'dist'), path.join(process.cwd(), 'client', 'dist')].find((p) =>
+    fs.existsSync(path.join(p, 'index.html')),
+  ) ??
+  path.join(process.cwd(), 'client', 'dist');
 
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -41,12 +51,23 @@ const server = http.createServer(async (req, res) => {
   if (!filePath.startsWith(STATIC_DIR)) {
     res.writeHead(403); res.end(); return;
   }
-  if (url.pathname === '/' || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    filePath = path.join(STATIC_DIR, 'index.html');
+  const exists = fs.existsSync(filePath);
+  if (exists && !fs.statSync(filePath).isDirectory() && url.pathname !== '/') {
+    res.writeHead(200, { 'content-type': MIME[path.extname(filePath)] ?? 'application/octet-stream' });
+    fs.createReadStream(filePath).pipe(res);
+    return;
   }
+  // a missing file WITH an extension is a real 404 (never serve index.html as JS/CSS)
+  if (!exists && path.extname(url.pathname) !== '') {
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end(`Not found: ${url.pathname}`);
+    return;
+  }
+  // SPA fallback for / and extensionless routes
+  filePath = path.join(STATIC_DIR, 'index.html');
   if (!fs.existsSync(filePath)) {
     res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Client build not found. Run: npm run build');
+    res.end('Client build not found — run `npm run build` (looked in ' + STATIC_DIR + ')');
     return;
   }
   res.writeHead(200, { 'content-type': MIME[path.extname(filePath)] ?? 'application/octet-stream' });
@@ -134,6 +155,9 @@ setInterval(() => {
     ws.ping();
   }
 }, 30000);
+
+const indexOk = fs.existsSync(path.join(STATIC_DIR, 'index.html'));
+console.log(`[static] serving ${STATIC_DIR} (index.html ${indexOk ? 'found' : 'MISSING — did the client build run?'})`);
 
 initDb()
   .catch((err) => console.error('[db] init failed (leaderboard disabled)', err))
