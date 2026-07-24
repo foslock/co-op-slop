@@ -14,6 +14,53 @@ export function formatTime(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
+// Grouped key reference for the pause screen. `keys` render as individual caps;
+// a "/" inside one entry keeps alternatives on a single cap (W/S).
+const CONTROL_GROUPS: { title: string; rows: [string[], string][] }[] = [
+  {
+    title: 'Move',
+    rows: [
+      [['W', 'A', 'S', 'D'], 'Walk'],
+      [['Space'], 'Jump'],
+      [['Mouse'], 'Look around'],
+      [['Z'], 'Dive'],
+    ],
+  },
+  {
+    title: 'Climb',
+    rows: [
+      [['Shift'], 'Hold to grab a rope or ladder'],
+      [['W/S'], 'Climb up · shimmy across'],
+      [['Space'], 'Swing off'],
+      [['Shift'], 'Release to let go'],
+    ],
+  },
+  {
+    title: 'Team',
+    rows: [
+      [['F'], 'Hold hands'],
+      [['G'], 'Give item · drop it if nobody is near'],
+      [['B'], 'Ping your position'],
+    ],
+  },
+  {
+    title: 'Other',
+    rows: [
+      [['Q'], 'Use held item'],
+      [['R-Click'], 'Zoom (with telescope)'],
+      [['R'], 'Reset to checkpoint'],
+      [['Esc'], 'Pause'],
+    ],
+  },
+];
+
+const CONTROLS_HTML = CONTROL_GROUPS.map(
+  (g) =>
+    `<section><h3>${g.title}</h3>${g.rows
+      .map(([keys, label]) => `<div class="ctrl-row"><span class="ctrl-keys">${keys.map((k) => `<kbd>${k}</kbd>`).join('')}</span><span class="ctrl-label">${label}</span></div>`)
+      .join('')}</section>`,
+).join('');
+
 export interface HudCallbacks {
   onClickToPlay: () => void;
   onResume: () => void;
@@ -31,6 +78,8 @@ export class Hud {
   private toasts: HTMLDivElement;
   private clickOverlay: HTMLDivElement;
   private pauseEl: HTMLDivElement;
+  private controlsSheet!: HTMLDivElement;
+  private controlsBtn!: HTMLButtonElement;
   private lastCountdown = -1;
 
   constructor(parent: HTMLElement, callbacks: HudCallbacks) {
@@ -49,21 +98,17 @@ export class Hud {
       <div class="hud-item" style="display:none"></div>
       <div class="click-to-play" style="display:none">Click to look around 🔍</div>
       <div class="pause-overlay" style="display:none">
-        <div class="panel" style="align-items:center;min-width:360px">
-          <h2>⏸ PAUSED</h2>
-          <div style="color:var(--muted);font-size:13px;text-align:center">
-            The climb keeps going for your team —<br>the timer doesn't stop!
+        <div class="pause-panel">
+          <div class="pause-head">
+            <div class="pause-title">PAUSED</div>
+            <div class="pause-sub">The clock is still running for your team</div>
           </div>
-          <div class="pause-help">
-            <b>WASD</b> move &nbsp;<b>Space</b> jump &nbsp;<b>Mouse</b> look<br>
-            ropes/ladders grab on touch &nbsp;<b>E</b> let go<br>
-            strung ropes: hang on, <b>W/S</b> to shimmy across<br>
-            <b>F</b> hold hands &nbsp;<b>Z</b> dive &nbsp;<b>R</b> reset to checkpoint<br>
-            <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping<br>
-            hold <b>Right Click</b> to zoom with the telescope
+          <div class="pause-buttons">
+            <button id="resume">Resume</button>
+            <button id="controls-toggle" class="secondary">Controls</button>
+            <button id="leave" class="secondary quiet">Leave Game</button>
           </div>
-          <button id="resume" style="width:100%">Resume</button>
-          <button id="leave" class="secondary" style="width:100%">Leave Game</button>
+          <div class="controls-sheet" id="controls-sheet" hidden>${CONTROLS_HTML}</div>
         </div>
       </div>
     `;
@@ -80,6 +125,16 @@ export class Hud {
     this.pauseEl = this.root.querySelector('.pause-overlay')!;
     this.pauseEl.querySelector('#resume')!.addEventListener('click', callbacks.onResume);
     this.pauseEl.querySelector('#leave')!.addEventListener('click', callbacks.onLeave);
+    this.controlsSheet = this.pauseEl.querySelector('#controls-sheet')!;
+    this.controlsBtn = this.pauseEl.querySelector('#controls-toggle')!;
+    this.controlsBtn.addEventListener('click', () => this.setControlsOpen(this.controlsSheet.hidden));
+  }
+
+  /** Show/hide the key reference; the choice sticks for the rest of the run. */
+  private setControlsOpen(open: boolean) {
+    this.controlsSheet.hidden = !open;
+    this.controlsBtn.textContent = open ? 'Hide Controls' : 'Controls';
+    this.controlsBtn.classList.toggle('active', open);
   }
 
   showPause() {

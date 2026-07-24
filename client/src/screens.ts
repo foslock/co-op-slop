@@ -72,22 +72,30 @@ export class UI {
   // ---------- home ----------
   showHome() {
     const s = this.setScreen(`
-      <div class="title">ONLY US</div>
-      <div class="subtitle">a cooperative climb to space · 1–4 players</div>
-      <div class="panel">
-        <h2>WHO ARE YOU?</h2>
+      <div class="title-wrap">
+        <div class="title">${[...'ONLY US'].map((ch, i) => `<span style="--i:${i}">${ch === ' ' ? '&nbsp;' : ch}</span>`).join('')}</div>
+        <div class="subtitle">a cooperative climb to space</div>
+      </div>
+      <div class="tag-row">
+        <span class="tag-pill">🧗 1–4 players</span>
+        <span class="tag-pill">⏱ 15–25 min</span>
+        <span class="tag-pill">🎉 no account</span>
+      </div>
+      <div class="panel panel-home">
+        <h2>Who are you?</h2>
         <input type="text" id="name" maxlength="16" placeholder="Your nickname" value="${this.name.replace(/"/g, '&quot;')}" />
-        <button id="create">Create a Room</button>
+        <button id="create" class="big">Create a Room <span class="btn-emoji">🚀</span></button>
+        <div class="or-split"><span>or join a friend</span></div>
         <div class="row">
           <input type="text" id="code" class="code grow" maxlength="4" placeholder="CODE" />
           <button id="join" class="secondary">Join</button>
         </div>
-        <button id="leaderboard" class="secondary small">🏆 Best Times</button>
+        <button id="leaderboard" class="ghost small">🏆 Best Times</button>
       </div>
-      <div style="color:var(--muted);font-size:12.5px;max-width:460px;text-align:center;line-height:1.6">
+      <div class="blurb">
         Climb a tower of giant household junk, from the kitchen floor to deep space.
         Stand on buttons, climb ropes, share items, hold hands across gaps —
-        everyone must reach the flag. The clock is ticking. 🚩
+        <b>everyone</b> must reach the flag. The clock is ticking. 🚩
       </div>
     `);
     const nameEl = s.querySelector<HTMLInputElement>('#name')!;
@@ -162,27 +170,31 @@ export class UI {
   // ---------- lobby ----------
   showLobby(code: string) {
     const s = this.setScreen(`
-      <div class="title" style="font-size:40px">ONLY US</div>
-      <div class="panel" style="min-width:560px">
-        <div class="code-display" id="codecopy" title="Click to copy">${code}</div>
-        <div class="code-hint">share this code with your friends · click to copy</div>
+      <div class="title title-sm">${[...'ONLY US'].map((ch, i) => `<span style="--i:${i}">${ch === ' ' ? '&nbsp;' : ch}</span>`).join('')}</div>
+      <div class="panel panel-lobby">
+        <div class="code-block" id="codecopy" title="Click to copy">
+          <div class="code-tiles">${[...code].map((ch, i) => `<span class="code-tile" style="--i:${i}">${ch}</span>`).join('')}</div>
+          <div class="code-hint">tap to copy · share it with your friends</div>
+        </div>
         <div class="lobby-cols">
-          <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
-            <canvas id="preview-canvas" width="170" height="200"></canvas>
+          <div class="lobby-col dressing-room">
+            <div class="col-label">Your bean</div>
+            <div class="preview-stage"><canvas id="preview-canvas" width="170" height="200"></canvas></div>
             <div class="swatches" id="colors"></div>
-            <div class="row wrap" id="hats" style="justify-content:center"></div>
-            <div class="row wrap" id="eyes" style="justify-content:center"></div>
+            <div class="chip-row" id="hats"></div>
+            <div class="chip-row" id="eyes"></div>
           </div>
-          <div class="grow" style="display:flex;flex-direction:column;gap:10px">
+          <div class="lobby-col grow crew">
+            <div class="col-label">The crew</div>
             <div class="player-list" id="players"></div>
             <div class="row" id="seedrow" style="display:none">
               <input type="text" id="seed" placeholder="Custom seed (optional)" />
             </div>
             <div class="grow"></div>
-            <button id="ready">I'm Ready</button>
-            <button id="start" style="display:none" disabled>Start Climb 🚀</button>
-            <div id="waitmsg" style="color:var(--muted);font-size:12.5px;text-align:center"></div>
-            <button id="exitroom" class="secondary small">Leave Lobby</button>
+            <button id="ready" class="big">I'm Ready</button>
+            <button id="start" class="big" style="display:none" disabled>Start Climb 🚀</button>
+            <div id="waitmsg" class="waitmsg"></div>
+            <button id="exitroom" class="ghost small">Leave Lobby</button>
           </div>
         </div>
       </div>
@@ -282,13 +294,18 @@ export class UI {
       .map((p) => {
         const color = COSMETIC_COLORS[p.cosmetics.color % COSMETIC_COLORS.length].toString(16).padStart(6, '0');
         const isHost = p.id === hostId;
-        const status = isHost ? '<span class="status ready">HOST</span>' : p.ready ? '<span class="status ready">READY</span>' : '<span class="status waiting">waiting…</span>';
-        return `<div class="player-card"><span class="dot" style="background:#${color}"></span>` +
-          `<span class="who">${p.name}${p.id === myId ? '<span class="tag">(you)</span>' : ''}</span>${status}</div>`;
+        const status = isHost
+          ? '<span class="status host">👑 HOST</span>'
+          : p.ready
+            ? '<span class="status ready">READY!</span>'
+            : '<span class="status waiting">waiting…</span>';
+        return `<div class="player-card${p.id === myId ? ' me' : ''}${p.ready && !isHost ? ' is-ready' : ''}">` +
+          `<span class="bean" style="--bean:#${color}"></span>` +
+          `<span class="who">${p.name}${p.id === myId ? '<span class="tag">you</span>' : ''}</span>${status}</div>`;
       })
       .join('') +
       Array.from({ length: 4 - players.length })
-        .map(() => `<div class="player-card" style="opacity:.4"><span class="dot" style="background:#444"></span><span class="who" style="color:var(--muted)">empty slot</span></div>`)
+        .map(() => '<div class="player-card empty"><span class="bean ghost-bean"></span><span class="who">waiting for a friend…</span></div>')
         .join('');
 
     const amHost = myId === hostId;
