@@ -21,6 +21,7 @@ export type C2S =
   | { t: 'ping' }
   | { t: 'flag' }
   | { t: 'again' } // host only: return everyone to the lobby
+  | { t: 'close' } // host only: shut the room down and send everyone home
   | { t: 'leave' };
 
 // ---- server → client ----
@@ -42,4 +43,5 @@ export type S2C =
   | { t: 'ping'; player: string; p: [number, number, number] }
   | { t: 'flag'; player: string; done: string[] }
   | { t: 'finish'; durationMs: number; falls: Record<string, number>; rank: number | null; top: RunRow[] }
-  | { t: 'lobbyAgain' };
+  | { t: 'lobbyAgain' }
+  | { t: 'roomClosed' };

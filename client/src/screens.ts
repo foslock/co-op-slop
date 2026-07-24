@@ -14,6 +14,8 @@ export interface UICallbacks {
   onSeed(seed: string): void;
   onStart(): void;
   onPlayAgain(): void;
+  onCloseRoom(): void; // host only: kick everyone back to the home screen
+  onLeaveRoom(): void;
 }
 
 export class UI {
@@ -24,6 +26,9 @@ export class UI {
   cosmetics: Cosmetics;
   name: string;
   private ready = false;
+  private amHost = false;
+  private closeArmed = false;
+  private closeTimer: number | null = null;
 
   constructor(root: HTMLElement, cb: UICallbacks) {
     this.root = root;
@@ -49,6 +54,7 @@ export class UI {
   }
 
   clear() {
+    this.disarmClose();
     this.preview?.dispose();
     this.preview = null;
     this.screen?.remove();
@@ -176,11 +182,14 @@ export class UI {
             <button id="ready">I'm Ready</button>
             <button id="start" style="display:none" disabled>Start Climb 🚀</button>
             <div id="waitmsg" style="color:var(--muted);font-size:12.5px;text-align:center"></div>
+            <button id="exitroom" class="secondary small">Leave Lobby</button>
           </div>
         </div>
       </div>
     `);
     this.ready = false;
+    // matches the button's default label; updateLobby relabels it if we're the host
+    this.amHost = false;
     s.querySelector('#codecopy')!.addEventListener('click', () => {
       void navigator.clipboard?.writeText(code);
       this.errorToast('Code copied!');
@@ -224,6 +233,39 @@ export class UI {
     s.querySelector('#start')!.addEventListener('click', () => this.cb.onStart());
     const seedEl = s.querySelector<HTMLInputElement>('#seed')!;
     seedEl.addEventListener('change', () => this.cb.onSeed(seedEl.value.trim()));
+
+    const exitBtn = s.querySelector<HTMLButtonElement>('#exitroom')!;
+    exitBtn.addEventListener('click', () => {
+      if (!this.amHost) {
+        this.cb.onLeaveRoom();
+        return;
+      }
+      // closing boots everyone else, so make the host click twice
+      if (!this.closeArmed) {
+        this.armClose(exitBtn);
+        return;
+      }
+      this.disarmClose();
+      this.cb.onCloseRoom();
+    });
+  }
+
+  private armClose(btn: HTMLButtonElement) {
+    this.closeArmed = true;
+    btn.textContent = 'Close for everyone? Click again';
+    this.closeTimer = window.setTimeout(() => {
+      this.disarmClose();
+      const el = this.screen?.querySelector<HTMLButtonElement>('#exitroom');
+      if (el) el.textContent = 'Close Lobby';
+    }, 6000);
+  }
+
+  private disarmClose() {
+    this.closeArmed = false;
+    if (this.closeTimer !== null) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = null;
+    }
   }
 
   private pushCosmetics() {
@@ -250,6 +292,13 @@ export class UI {
         .join('');
 
     const amHost = myId === hostId;
+    const exitBtn = this.screen.querySelector<HTMLButtonElement>('#exitroom');
+    if (exitBtn && amHost !== this.amHost) {
+      this.disarmClose(); // host migrated mid-confirm — don't leave the button armed
+      exitBtn.textContent = amHost ? 'Close Lobby' : 'Leave Lobby';
+      exitBtn.title = amHost ? 'Shut the room down and send everyone home' : 'Go back to the home screen';
+    }
+    this.amHost = amHost;
     const startBtn = this.screen.querySelector<HTMLButtonElement>('#start');
     const readyBtn = this.screen.querySelector<HTMLButtonElement>('#ready');
     const seedRow = this.screen.querySelector<HTMLElement>('#seedrow');

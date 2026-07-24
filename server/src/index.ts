@@ -28,6 +28,31 @@ const MIME: Record<string, string> = {
 
 const rooms = new RoomManager();
 
+const escapeHtml = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+
+function noClientBuildPage(): string {
+  return `<!doctype html><meta charset="utf-8"><title>Only Us — server</title>
+<style>
+  body { background:#0a0f22; color:#e9edf7; font:15px/1.7 system-ui,sans-serif; margin:0;
+         min-height:100vh; display:grid; place-items:center; padding:24px }
+  main { max-width:560px }
+  h1 { color:#ffd24d; font-size:20px; letter-spacing:1px; margin:0 0 12px }
+  code { background:rgba(255,255,255,.09); border-radius:5px; padding:2px 6px }
+  p { margin:10px 0 }
+  .muted { color:#8b93ad; font-size:13px }
+</style>
+<main>
+  <h1>ONLY US · server is running</h1>
+  <p>The WebSocket (<code>/ws</code>) and leaderboard API (<code>/api</code>) are live on this port,
+     but there's no client build here to serve.</p>
+  <p><b>In development</b> that's expected — the game is served by Vite at
+     <a href="http://localhost:5173" style="color:#4dabf7">http://localhost:5173</a>,
+     which proxies both of those back to this port. Open that instead.</p>
+  <p><b>In production</b> run <code>npm run build</code> before <code>npm start</code>.</p>
+  <p class="muted">Looked for index.html in ${escapeHtml(STATIC_DIR)}</p>
+</main>`;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/healthz') {
@@ -66,8 +91,10 @@ const server = http.createServer(async (req, res) => {
   // SPA fallback for / and extensionless routes
   filePath = path.join(STATIC_DIR, 'index.html');
   if (!fs.existsSync(filePath)) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Client build not found — run `npm run build` (looked in ' + STATIC_DIR + ')');
+    // Normal in dev: `npm run dev` serves the UI from Vite and only proxies
+    // /ws + /api here, so this port has no client build to serve.
+    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(noClientBuildPage());
     return;
   }
   res.writeHead(200, { 'content-type': MIME[path.extname(filePath)] ?? 'application/octet-stream' });

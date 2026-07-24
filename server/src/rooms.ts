@@ -108,6 +108,17 @@ export class Room {
     }
   }
 
+  // Host shut the room down: tell everyone, then drop the room so the code can't
+  // be rejoined. Clients go home on 'roomClosed'; we close the sockets too so a
+  // stale client can't keep talking to a dead room.
+  closeRoom() {
+    const all = [...this.players.values()];
+    this.broadcast({ t: 'roomClosed' });
+    this.players.clear();
+    this.destroy();
+    for (const p of all) p.ws.close();
+  }
+
   destroy() {
     if (this.tick) clearInterval(this.tick);
     for (const t of this.holdTimers.values()) clearTimeout(t);
@@ -230,6 +241,10 @@ export class Room {
         if (this.tick) { clearInterval(this.tick); this.tick = null; }
         this.broadcast({ t: 'lobbyAgain' });
         this.broadcast(this.lobbyMsg());
+        break;
+      case 'close':
+        if (p.id !== this.hostId) break;
+        this.closeRoom();
         break;
       case 'leave':
         // handled by connection close in index.ts; nothing to do here

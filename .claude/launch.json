@@ -7,6 +7,18 @@
       "runtimeArgs": ["server/dist/index.cjs"],
       "port": 3001,
       "autoPort": true
+    },
+    {
+      "name": "only-us-dev-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:server"],
+      "port": 3001
+    },
+    {
+      "name": "only-us-dev-client",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:client"],
+      "port": 5173
     }
   ]
 }

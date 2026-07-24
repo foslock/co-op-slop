@@ -25,6 +25,14 @@ const ui = new UI(uiRoot, {
   onSeed: (seed) => net?.send({ t: 'seed', seed }),
   onStart: () => net?.send({ t: 'start' }),
   onPlayAgain: () => net?.send({ t: 'again' }),
+  onCloseRoom: () => {
+    net?.send({ t: 'close' });
+    goHome();
+  },
+  onLeaveRoom: () => {
+    net?.send({ t: 'leave' });
+    goHome();
+  },
 });
 
 window.addEventListener('pointerdown', unlockAudio, { once: true });
@@ -104,6 +112,9 @@ function bindNet(n: Net) {
     appState = 'playing';
     ui.clear();
     game.start(msg.startAt);
+  });
+  n.on('roomClosed', () => {
+    goHome(myId === hostId ? undefined : 'The host closed the lobby');
   });
   n.on('lobbyAgain', () => {
     teardownGame();
