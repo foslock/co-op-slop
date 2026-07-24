@@ -15,6 +15,7 @@ export type C2S =
   | { t: 'fell' }
   | { t: 'pickup'; item: number }
   | { t: 'give'; to: string }
+  | { t: 'drop'; p: [number, number, number] } // put the held item back in the world
   | { t: 'grapple'; top: [number, number, number]; length: number }
   | { t: 'grab'; target: string; on: boolean }
   | { t: 'knock'; vel: [number, number, number] }
@@ -37,6 +38,7 @@ export type S2C =
   | { t: 'fell'; player: string }
   | { t: 'pickup'; player: string; item: number }
   | { t: 'item'; player: string; item: ItemType | null }
+  | { t: 'dropped'; player: string; item: number; p: [number, number, number] }
   | { t: 'rope'; top: [number, number, number]; length: number; by: string }
   | { t: 'grab'; from: string; target: string; on: boolean }
   | { t: 'knock'; player: string; vel: [number, number, number] }

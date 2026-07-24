@@ -1,10 +1,22 @@
 import * as THREE from 'three';
 import { ANIM, COSMETIC_COLORS, type Cosmetics } from 'shared';
 
+/**
+ * Where every piece of the character is right now, in world space relative to
+ * the rig's origin. Handing this to a ragdoll lets it start in exactly the pose
+ * the animated rig was in, so a knockdown doesn't visibly snap.
+ */
+export interface RigPose {
+  quat: THREE.Quaternion; // torso orientation (yaw plus any animation lean)
+  limbs: { pos: THREE.Vector3; quat: THREE.Quaternion }[]; // armL, armR, legL, legR
+}
+
 export interface CharacterRig {
   group: THREE.Group;
   color: number;
   animate(anim: number, time: number, speed: number, vy: number): void;
+  /** Snapshot of the current pose, for handing off to a ragdoll. */
+  pose(): RigPose;
   /** Fade the whole rig (1 = solid, 0 = hidden) — used for telescope zoom. */
   setOpacity(o: number): void;
   dispose(): void;
@@ -55,64 +67,106 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = t
 
   const bodyMat = mat(color);
   const darker = mat(new THREE.Color(color).multiplyScalar(0.72).getHex());
+  const darkest = mat(new THREE.Color(color).multiplyScalar(0.58).getHex());
 
-  // body (origin = capsule center; feet at ~-0.62)
-  const body = new THREE.Mesh(geo(new THREE.CapsuleGeometry(0.3, 0.45, 6, 14)), bodyMat);
-  body.position.y = 0.08;
+  // Everything below the root can lean, bob and squash without disturbing the
+  // group transform the game owns (position + yaw) or the name label.
+  const root = new THREE.Group();
+  group.add(root);
+
+  // Body: one lathed silhouette rather than a capsule with shapes bolted on.
+  // The profile (radius against height) carries all the definition — wide hips,
+  // a waist, a soft neck dip and a rounded head — so the surface stays smooth
+  // and there are no seams or bulges where parts would otherwise overlap.
+  const BODY_PROFILE: [number, number][] = [
+    [0.02, -0.450], // the body stops here so the legs actually show below it
+    [0.150, -0.432],
+    [0.232, -0.395],
+    [0.276, -0.330],
+    [0.293, -0.245], // widest — hips
+    [0.293, -0.140],
+    [0.281, -0.020],
+    [0.268, 0.080], // waist
+    [0.258, 0.150],
+    [0.244, 0.200], // neck dip
+    [0.254, 0.250],
+    [0.272, 0.310], // head, where the face sits
+    [0.266, 0.380],
+    [0.248, 0.440],
+    [0.205, 0.500],
+    [0.140, 0.550],
+    [0.02, 0.575],
+  ];
+  const body = new THREE.Mesh(
+    geo(new THREE.LatheGeometry(BODY_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)), 22)),
+    bodyMat,
+  );
   body.castShadow = true;
-  group.add(body);
-
-  // belly accent
-  const belly = new THREE.Mesh(geo(new THREE.SphereGeometry(0.22, 12, 10)), mat(0xffffff, { roughness: 0.9 }));
-  belly.position.set(0, -0.02, 0.14);
-  belly.scale.set(1, 1.15, 0.55);
-  group.add(belly);
+  root.add(body);
 
   // eyes
   const eyeWhite = mat(0xffffff);
   const eyeBlack = mat(0x1f2125);
+  const eyeMeshes: THREE.Mesh[] = [];
   for (const side of [-1, 1]) {
     const e = new THREE.Mesh(geo(new THREE.SphereGeometry(0.085, 10, 8)), eyeWhite);
     e.position.set(side * 0.105, 0.3, 0.245);
     if (cos.eyes === 1) e.scale.y = 0.62; // happy squint
-    group.add(e);
+    root.add(e);
+    eyeMeshes.push(e);
     const p = new THREE.Mesh(geo(new THREE.SphereGeometry(0.042, 8, 6)), eyeBlack);
     p.position.set(side * 0.105, cos.eyes === 1 ? 0.285 : 0.3, 0.31);
-    group.add(p);
+    root.add(p);
+    eyeMeshes.push(p);
     if (cos.eyes === 2) {
       const lid = new THREE.Mesh(geo(new THREE.BoxGeometry(0.19, 0.085, 0.1)), bodyMat);
       lid.position.set(side * 0.105, 0.355, 0.26);
       lid.rotation.x = 0.25;
-      group.add(lid);
+      root.add(lid);
     }
   }
+  const eyeBaseY = eyeMeshes.map((m) => m.scale.y);
 
-  // limbs: pivot groups at shoulders/hips so swing rotates naturally
-  const limb = (r: number, len: number, px: number, py: number): THREE.Group => {
+  // limbs: pivot groups at shoulders/hips so swing rotates naturally, each
+  // capped with a hand or a foot so the ends read at a glance
+  const limb = (r: number, len: number, px: number, py: number, foot: boolean): { pivot: THREE.Group; end: THREE.Mesh } => {
     const pivot = new THREE.Group();
     pivot.position.set(px, py, 0);
     const m = new THREE.Mesh(geo(new THREE.CapsuleGeometry(r, len, 4, 8)), darker);
     m.position.y = -(len / 2 + r * 0.5);
     m.castShadow = true;
     pivot.add(m);
-    group.add(pivot);
-    return pivot;
+    const endGeo = foot
+      ? geo(new THREE.SphereGeometry(r * 1.5, 10, 8))
+      : geo(new THREE.SphereGeometry(r * 1.2, 10, 8));
+    const end = new THREE.Mesh(endGeo, darkest);
+    end.position.y = -(len + r * 0.9);
+    if (foot) {
+      end.scale.set(1.0, 0.62, 1.45);
+      end.position.z = 0.05;
+    }
+    end.castShadow = true;
+    pivot.add(end);
+    root.add(pivot);
+    return { pivot, end };
   };
   let armL: THREE.Group | null = null;
   let armR: THREE.Group | null = null;
   let legL: THREE.Group | null = null;
   let legR: THREE.Group | null = null;
+  let footL: THREE.Mesh | null = null;
+  let footR: THREE.Mesh | null = null;
   if (withLimbs) {
-    armL = limb(0.07, 0.2, -0.33, 0.16);
-    armR = limb(0.07, 0.2, 0.33, 0.16);
-    legL = limb(0.09, 0.17, -0.14, -0.3);
-    legR = limb(0.09, 0.17, 0.14, -0.3);
+    ({ pivot: armL } = limb(0.07, 0.2, -0.29, 0.17, false));
+    ({ pivot: armR } = limb(0.07, 0.2, 0.29, 0.17, false));
+    ({ pivot: legL, end: footL } = limb(0.09, 0.19, -0.135, -0.30, true));
+    ({ pivot: legR, end: footR } = limb(0.09, 0.19, 0.135, -0.30, true));
   }
 
   // hat
   const hatGroup = new THREE.Group();
   hatGroup.position.y = 0.52;
-  group.add(hatGroup);
+  root.add(hatGroup);
   switch (cos.hat) {
     case 1: { // cap
       const dome = new THREE.Mesh(geo(new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xe05d5d));
@@ -162,36 +216,116 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = t
 
   if (nameLabel) group.add(makeNameSprite(nameLabel, color));
 
+  // Damped state so poses ease between each other instead of snapping — most
+  // visibly at the top of a jump, where vy crosses from rising to falling.
+  let lastTime = 0;
+  let airBlend = 0; // 0 = falling pose, 1 = rising pose
+  let stretch = 1; // current body stretch, chased toward the pose's target
+
   const animate = (anim: number, time: number, speed: number, vy: number) => {
-    if (!armL || !armR || !legL || !legR) return;
+    const dt = THREE.MathUtils.clamp(time - lastTime, 0, 0.1);
+    lastTime = time;
+    const ease = 1 - Math.exp(-dt * 9); // frame-rate independent smoothing
+
+    // blink on a lazy cycle — cheap, and it stops the face reading as a mask
+    if (cos.eyes !== 1) {
+      const blink = (time % 3.6) < 0.11 ? 0.12 : 1;
+      eyeMeshes.forEach((m, i) => { m.scale.y = eyeBaseY[i] * blink; });
+    }
+    if (!armL || !armR || !legL || !legR || !footL || !footR) return;
+
+    const lerp = THREE.MathUtils.lerp;
+    let stretchTarget = 1;
+
     if (anim === ANIM.run) {
       const ph = time * Math.min(11, 5 + speed);
-      armL.rotation.x = Math.sin(ph) * 0.9;
-      armR.rotation.x = -Math.sin(ph) * 0.9;
-      legL.rotation.x = -Math.sin(ph) * 0.95;
-      legR.rotation.x = Math.sin(ph) * 0.95;
-      body.position.y = 0.08 + Math.abs(Math.sin(ph)) * 0.035;
+      const swing = Math.sin(ph);
+      const lean = Math.min(0.26, speed * 0.035);
+      armL.rotation.x = swing * 0.95;
+      armR.rotation.x = -swing * 0.95;
+      armL.rotation.z = 0.12;
+      armR.rotation.z = -0.12;
+      // legs lift at the front of the stride and the feet flick up behind
+      legL.rotation.x = -swing * 1.0;
+      legR.rotation.x = swing * 1.0;
+      footL.rotation.x = Math.max(0, -swing) * 0.8;
+      footR.rotation.x = Math.max(0, swing) * 0.8;
+      body.position.y = Math.abs(swing) * 0.04;
+      root.position.y = Math.abs(Math.sin(ph)) * 0.035;
+      root.rotation.x = lean;                    // lean into the run
+      root.rotation.z = Math.sin(ph) * 0.05;     // and roll a little with each step
+      root.rotation.y = Math.sin(ph) * 0.07;     // shoulders counter-rotate
     } else if (anim === ANIM.air) {
-      const up = vy > 1;
-      armL.rotation.x = up ? -2.6 : -1.4;
-      armR.rotation.x = up ? -2.6 : -1.4;
-      legL.rotation.x = up ? 0.5 : -0.3;
-      legR.rotation.x = up ? 0.2 : -0.55;
+      // Rising and falling are two poses blended by vy rather than switched
+      // between, and the blend itself is damped, so going over the apex reads
+      // as the body easing from a stretched leap into a bracing fall.
+      airBlend += (THREE.MathUtils.smoothstep(vy, -5, 5) - airBlend) * ease;
+      const b = airBlend;
+      armL.rotation.x = lerp(-1.4, -2.6, b);
+      armR.rotation.x = lerp(-1.4, -2.6, b);
+      // Z swings a limb toward the body's centre line, so the left arm needs a
+      // negative angle to spread outward — with both positive the hands end up
+      // crossed over the chest and clip through it.
+      armL.rotation.z = -lerp(0.75, 0.45, b);
+      armR.rotation.z = lerp(0.75, 0.45, b);
+      legL.rotation.x = lerp(-0.35, 0.55, b);
+      legR.rotation.x = lerp(-0.6, 0.2, b);
+      footL.rotation.x = lerp(0, 0.5, b);
+      footR.rotation.x = lerp(0, 0.5, b);
+      root.position.y = 0;
+      root.rotation.set(lerp(0.14, -0.12, b), 0, 0);
+      // stretch going up, squash coming down — classic cartoon weight
+      stretchTarget = THREE.MathUtils.clamp(1 + vy * 0.012, 0.9, 1.1);
     } else if (anim === ANIM.climb) {
       const ph = time * 6;
-      armL.rotation.x = -2.4 + Math.sin(ph) * 0.5;
-      armR.rotation.x = -2.4 - Math.sin(ph) * 0.5;
-      legL.rotation.x = Math.sin(ph) * 0.6;
-      legR.rotation.x = -Math.sin(ph) * 0.6;
+      const reach = Math.sin(ph);
+      armL.rotation.x = -2.4 + reach * 0.5;
+      armR.rotation.x = -2.4 - reach * 0.5;
+      armL.rotation.z = 0.25;
+      armR.rotation.z = -0.25;
+      legL.rotation.x = reach * 0.6;
+      legR.rotation.x = -reach * 0.6;
+      footL.rotation.x = 0.3;
+      footR.rotation.x = 0.3;
+      root.position.y = reach * 0.02;
+      root.rotation.set(0, 0, reach * 0.06);
     } else {
-      // idle
+      // idle: breathing, a slow sway, and arms hanging with a bit of life
       const ph = time * 2.2;
-      armL.rotation.x = Math.sin(ph) * 0.08;
-      armR.rotation.x = -Math.sin(ph) * 0.08;
+      const breath = Math.sin(ph);
+      armL.rotation.x = breath * 0.08;
+      armR.rotation.x = -breath * 0.08;
+      armL.rotation.z = 0.16 + breath * 0.03;
+      armR.rotation.z = -0.16 - breath * 0.03;
       legL.rotation.x = 0;
       legR.rotation.x = 0;
-      body.position.y = 0.08 + Math.sin(ph) * 0.012;
+      footL.rotation.x = 0;
+      footR.rotation.x = 0;
+      body.position.y = breath * 0.012;
+      root.position.y = 0;
+      root.rotation.set(0, Math.sin(time * 0.7) * 0.05, Math.sin(time * 0.9) * 0.02);
+      stretchTarget = 1 + breath * 0.02;
     }
+
+    // one damped squash/stretch for every state, so landing eases back to
+    // neutral instead of popping the instant the anim changes
+    stretch += (stretchTarget - stretch) * ease;
+    body.scale.set(2 - stretch, stretch, 2 - stretch);
+  };
+
+  const pose = (): RigPose => {
+    group.updateMatrixWorld(true);
+    const origin = new THREE.Vector3().setFromMatrixPosition(group.matrixWorld);
+    const quat = root.getWorldQuaternion(new THREE.Quaternion());
+    const limbs = [armL, armR, legL, legR].flatMap((pivot) => {
+      const capsule = pivot?.children[0];
+      if (!capsule) return [];
+      return [{
+        pos: capsule.getWorldPosition(new THREE.Vector3()).sub(origin),
+        quat: capsule.getWorldQuaternion(new THREE.Quaternion()),
+      }];
+    });
+    return { quat, limbs };
   };
 
   const setOpacity = (o: number) => {
@@ -208,5 +342,5 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = t
     for (const m of mats) m.dispose();
   };
 
-  return { group, color, animate, setOpacity, dispose };
+  return { group, color, animate, pose, setOpacity, dispose };
 }

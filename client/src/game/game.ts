@@ -4,7 +4,7 @@ import {
   type ItemType, type LevelData, type PlayerInfo, type S2C,
 } from 'shared';
 import { initPhysics, RAPIER as R_NS, GROUP_PLAYER, GROUP_LEVEL, groups } from './physics';
-import { buildLevel, occlusionUniforms, type LevelHandles } from './levelBuilder';
+import { buildLevel, occlusionUniforms, type Interactable, type LevelHandles } from './levelBuilder';
 import { Environment } from './environment';
 import { LocalPlayer } from './localPlayer';
 import { RemotePlayer } from './remotePlayer';
@@ -66,6 +66,8 @@ export class Game {
   private lastStateSentAt = 0;
   private goPlayed = false;
   private ropeHintShown = false;
+  private interactHintShown = false;
+  private interactCooldown = new Map<Interactable, number>();
   private paused = false;
   private prevLocked = false;
   private fallCounts = new Map<string, number>();
@@ -258,10 +260,27 @@ export class Game {
           this.hud.toast(`${this.nameOf(msg.player)} received ${msg.item === 'doublejump' ? 'Double Jump' : msg.item === 'telescope' ? 'the Telescope' : 'the Grappling Hook'}`);
         }
       }),
+      on('dropped', (msg) => {
+        const item = this.handles.items.get(msg.item);
+        if (!item) return;
+        item.taken = false;
+        item.basePos.set(msg.p[0], msg.p[1], msg.p[2]);
+        item.group.position.copy(item.basePos);
+        item.group.visible = true;
+        if (msg.player === this.myId) {
+          this.inventory = null;
+          this.hud.setItem(null);
+          // don't scoop it straight back up while you're still standing on it
+          this.pickupCooldown.set(msg.item, performance.now() + 2500);
+          this.hud.toast('Item set down — anyone can grab it');
+        } else {
+          this.hud.toast(`${this.nameOf(msg.player)} set down an item`);
+        }
+      }),
       on('rope', (msg) => {
         this.handles.addRope({ x: msg.top[0], y: msg.top[1], z: msg.top[2] }, msg.length);
         sfx.grapple();
-        this.hud.toast(`${this.nameOf(msg.by)} threw a grappling rope! Jump on to climb it`);
+        this.hud.toast(`${this.nameOf(msg.by)} threw a grappling rope! Hold Shift to climb it`);
       }),
       on('grab', (msg) => {
         this.grab.set(msg.from, msg.target, msg.on);
@@ -273,7 +292,7 @@ export class Game {
         if (rp && info) {
           this.ragdolls.spawn(
             msg.player, rp.pos.clone(), new THREE.Vector3(...msg.vel), info.cosmetics,
-            GAME.ragdollTimeMs + 600, gravityScaleAtY(rp.pos.y, this.level.zones),
+            GAME.ragdollTimeMs + 600, gravityScaleAtY(rp.pos.y, this.level.zones), rp.rig.pose(),
           );
         }
       }),
@@ -350,7 +369,9 @@ export class Game {
     this.local.ragdolling = true;
     this.localRig.group.visible = false;
     const pos = this.local.pos().clone();
-    this.ragdolls.spawn(this.myId, pos, vel, this.me().cosmetics, GAME.ragdollTimeMs, gravityScaleAtY(pos.y, this.level.zones));
+    // hand over the rig's current pose so the switch to physics is seamless
+    const pose = this.localRig.pose();
+    this.ragdolls.spawn(this.myId, pos, vel, this.me().cosmetics, GAME.ragdollTimeMs, gravityScaleAtY(pos.y, this.level.zones), pose);
     this.net.send({ t: 'knock', vel: [vel.x, vel.y, vel.z] });
   }
 
@@ -420,7 +441,7 @@ export class Game {
         right,
         bridgeByCollider: this.handles.bridgeByCollider,
         climbables: this.handles.climbables,
-        traverses: this.handles.traverses,
+        ropes: this.handles.ropes,
         tetherTo: this.tetherTo,
         gravityScale,
       });
@@ -430,23 +451,29 @@ export class Game {
         else if (ev.type === 'fell') this.recordOwnFall('You fell! Back to the checkpoint');
         else if (ev.type === 'ropeGrabbed' && !this.ropeHintShown) {
           this.ropeHintShown = true;
-          this.hud.toast('Hanging on! W/S to shimmy across · Space to swing off');
+          this.hud.toast('Holding on! W/S to climb or shimmy · Space to swing off · release Shift to drop');
         }
       }
     }
     for (const bridge of this.handles.bridges.values()) bridge.syncMesh();
 
-    // ragdoll bookkeeping
-    const expired = this.ragdolls.syncAndExpire(performance.now());
-    for (const id of expired) {
-      if (id === this.myId) this.endLocalRagdoll(false);
-      else this.ragdolls.remove(id);
-    }
+    // ragdoll bookkeeping. A knocked-down player stays down until their body
+    // lands and settles — but one that's fallen out of the level never will, so
+    // check for that first and send them straight back to the checkpoint.
+    let fellOut = false;
     if (this.local.ragdolling) {
       const rd = this.ragdolls.get(this.myId);
-      if (rd && rd.torsoPos().y < this.local.checkpoint.pos.y - GAME.respawnFallBelow) {
+      const y = rd ? rd.torsoPos().y : 0;
+      if (rd && (y < this.local.checkpoint.pos.y - GAME.respawnFallBelow || y < GAME.killPlaneY)) {
         this.endLocalRagdoll(true);
+        fellOut = true;
       }
+    }
+    const expired = this.ragdolls.syncAndExpire(performance.now());
+    for (const id of expired) {
+      if (id === this.myId) {
+        if (!fellOut) this.endLocalRagdoll(false);
+      } else this.ragdolls.remove(id);
     }
 
     // remote players (also clean up stale remote ragdolls when their anim leaves ragdoll state)
@@ -577,6 +604,19 @@ export class Game {
       }
     }
 
+    // touch-responsive props: cosmetic only — a wiggle and a noise, no collision change
+    for (const it of this.handles.interactables) {
+      if (it.startedAt >= 0 || this.elapsed - (this.interactCooldown.get(it) ?? -99) < 1.4) continue;
+      if (myPos.distanceToSquared(it.pos) > it.def.radius * it.def.radius) continue;
+      it.startedAt = this.elapsed;
+      this.interactCooldown.set(it, this.elapsed + it.def.duration);
+      sfx[it.def.sound]();
+      if (it.def.hint && !this.interactHintShown) {
+        this.interactHintShown = true;
+        this.hud.toast(it.def.hint);
+      }
+    }
+
     // item pickups
     if (!this.inventory) {
       const now = performance.now();
@@ -612,7 +652,7 @@ export class Game {
       }
     }
 
-    // give item
+    // give item — or, with nobody in range, set it down where you're standing
     if (this.input.consumePress('KeyG') && this.inventory) {
       let best: RemotePlayer | null = null;
       let bestD = GAME.giveRange * GAME.giveRange;
@@ -627,7 +667,8 @@ export class Game {
         this.net.send({ t: 'give', to: best.id });
         sfx.give();
       } else {
-        this.hud.toast('No teammate close enough to give to');
+        this.net.send({ t: 'drop', p: this.dropSpot(myPos) });
+        sfx.give();
       }
     }
 
@@ -681,6 +722,15 @@ export class Game {
 
     // double jump item is passive
     this.local.hasDoubleJump = this.inventory === 'doublejump';
+  }
+
+  /** Where a dropped item lands: the surface under your feet, or your feet if there's nothing below. */
+  private dropSpot(myPos: THREE.Vector3): [number, number, number] {
+    const feetY = myPos.y - 0.7;
+    const ray = new R_NS.Ray({ x: myPos.x, y: feetY + 0.2, z: myPos.z }, { x: 0, y: -1, z: 0 });
+    const hit = this.world.castRay(ray, 3, true, undefined, groups(GROUP_PLAYER, GROUP_LEVEL), undefined, this.local.body);
+    const y = hit ? feetY + 0.2 - hit.timeOfImpact + 0.7 : feetY + 0.7;
+    return [Number(myPos.x.toFixed(2)), Number(y.toFixed(2)), Number(myPos.z.toFixed(2))];
   }
 
   /** Feed the occlusion-fade shader the player's screen position, view depth, and cutout radius. */

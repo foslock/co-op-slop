@@ -41,10 +41,33 @@ export interface ColliderDef {
   rotZ?: number;
 }
 
+// Purely cosmetic response to being touched: a few parts of the prop are built
+// as their own little group and animated on contact, with a sound. Nothing here
+// affects collision or gameplay.
+export type InteractKind =
+  | 'spin' // whirls around its own Y axis
+  | 'spinz' // whirls around Z, for wheels and dials facing the viewer
+  | 'swing' // rocks back and forth
+  | 'bob' // bounces on the spot
+  | 'pop'; // launches up and drops back
+
+export type InteractSound = 'ding' | 'squeak' | 'clack' | 'whirr' | 'chime';
+
+export interface InteractDef {
+  parts: PartDef[]; // positioned relative to `pivot`, kept out of the merged mesh
+  pivot: [number, number, number]; // prop-local origin the parts move around
+  kind: InteractKind;
+  sound: InteractSound;
+  radius: number; // how close the player has to get, in metres
+  duration: number; // seconds the animation runs
+  hint?: string; // one-off toast the first time anyone sets it off
+}
+
 export interface Archetype {
   id: string;
   parts: PartDef[];
   colliders: ColliderDef[];
+  interact?: InteractDef;
   topY: number; // height of the standable top surface above the prop origin
   topRadius: number; // usable standing radius on that surface
   pathable: boolean; // can be used as a platform on the climbing path

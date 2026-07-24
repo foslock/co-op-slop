@@ -17,6 +17,7 @@ interface Player {
   finished: boolean;
   falls: number;
   item: ItemType | null;
+  itemId: number | null; // which spawn the held item came from, so it can be dropped back
   // latest reported transform: x,y,z,yaw,anim,vy
   state: [number, number, number, number, number, number];
 }
@@ -77,7 +78,7 @@ export class Room {
     while ([...this.players.values()].some((p) => p.name === finalName)) finalName = `${name.slice(0, 13)}-${i++}`;
     const p: Player = {
       id, ws, name: finalName, cosmetics: cos, ready: false, loaded: false,
-      finished: false, falls: 0, item: null, state: [0, 1, 0, 0, 0, 0],
+      finished: false, falls: 0, item: null, itemId: null, state: [0, 1, 0, 0, 0, 0],
     };
     this.players.set(id, p);
     if (!this.hostId) this.hostId = id;
@@ -151,7 +152,7 @@ export class Room {
         this.phase = 'loading';
         this.seed = this.customSeed || randomSeed();
         for (const q of this.players.values()) {
-          q.loaded = false; q.finished = false; q.falls = 0; q.item = null;
+          q.loaded = false; q.finished = false; q.falls = 0; q.item = null; q.itemId = null;
           q.state = [0, 1, 0, 0, 0, 0];
         }
         this.itemsTaken.clear();
@@ -199,6 +200,7 @@ export class Room {
         if (!type) break;
         this.itemsTaken.add(msg.item);
         p.item = type;
+        p.itemId = msg.item;
         this.broadcast({ t: 'pickup', player: p.id, item: msg.item });
         break;
       }
@@ -206,14 +208,27 @@ export class Room {
         const target = this.players.get(msg.to);
         if (!target || !p.item || target.item) break;
         target.item = p.item;
+        target.itemId = p.itemId;
         p.item = null;
+        p.itemId = null;
         this.broadcast({ t: 'item', player: p.id, item: null });
         this.broadcast({ t: 'item', player: target.id, item: target.item });
+        break;
+      }
+      case 'drop': {
+        // Back into the world where it was dropped — anyone can pick it up again.
+        if (!p.item || p.itemId === null) break;
+        const id = p.itemId;
+        this.itemsTaken.delete(id);
+        p.item = null;
+        p.itemId = null;
+        this.broadcast({ t: 'dropped', player: p.id, item: id, p: msg.p });
         break;
       }
       case 'grapple':
         if (p.item !== 'grapple') break;
         p.item = null;
+        p.itemId = null;
         this.broadcast({ t: 'item', player: p.id, item: null });
         this.broadcast({ t: 'rope', top: msg.top, length: msg.length, by: p.id });
         break;

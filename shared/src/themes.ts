@@ -1,4 +1,4 @@
-import type { Archetype, ColliderDef, PartDef } from './types';
+import type { Archetype, ColliderDef, InteractDef, PartDef } from './types';
 
 // Compact builders so the catalog below stays readable.
 const box = (w: number, h: number, d: number, x: number, y: number, z: number, color: number, rot?: { rx?: number; rz?: number }): PartDef => ({
@@ -22,8 +22,23 @@ const ccyl = (r: number, h: number, x: number, y: number, z: number): ColliderDe
 const rep = (n: number, from: number, to: number, make: (t: number, i: number) => PartDef): PartDef[] =>
   Array.from({ length: n }, (_, i) => make(n === 1 ? from : from + ((to - from) * i) / (n - 1), i));
 
-const A = (id: string, topY: number, topRadius: number, pathable: boolean, parts: PartDef[], colliders: ColliderDef[]): Archetype => ({
-  id, topY, topRadius, pathable, parts, colliders,
+const A = (id: string, topY: number, topRadius: number, pathable: boolean, parts: PartDef[], colliders: ColliderDef[], interact?: InteractDef): Archetype => ({
+  id, topY, topRadius, pathable, parts, colliders, ...(interact ? { interact } : {}),
+});
+
+// Touch-response builder. `parts` are positioned relative to `pivot` and are
+// kept out of the merged level mesh so they can be animated per prop.
+const touch = (
+  pivot: [number, number, number],
+  kind: InteractDef['kind'],
+  sound: InteractDef['sound'],
+  parts: PartDef[],
+  opts: { radius?: number; duration?: number; hint?: string } = {},
+): InteractDef => ({
+  parts, pivot, kind, sound,
+  radius: opts.radius ?? 2.6,
+  duration: opts.duration ?? 1.1,
+  ...(opts.hint ? { hint: opts.hint } : {}),
 });
 
 // Palette shorthands
@@ -147,7 +162,11 @@ reg(A('k_toaster', 2.2, 1.35, true, [
   sph(0.2, 0.2, 0.2, 1.62, 2.1, 0, RED),
   cyl(0.3, 0.16, -0.9, 0.6, 1.02, CHARCOAL, 0.3, { rx: Math.PI / 2 }),
   box(2.4, 0.16, 0.06, 0, 0.35, 1.01, 0x8b969c),
-], [cbox(3.0, 2.2, 2.0, 0, 1.1, 0)]));
+], [cbox(3.0, 2.2, 2.0, 0, 1.1, 0)],
+  touch([0, 2.0, 0], 'pop', 'ding', [
+    box(1.0, 0.18, 0.36, -0.6, 0, 0, 0xd9a441),
+    box(1.0, 0.18, 0.36, 0.6, 0, 0, 0xc98c33),
+  ], { duration: 1.3, hint: 'Some things react when you bump into them — go poke around!' })));
 
 reg(A('k_grater', 3.0, 0.72, true, [
   box(1.7, 3.0, 1.7, 0, 1.5, 0, ALUM, { rz: 0 }),
@@ -178,9 +197,12 @@ reg(A('k_kettle', 1.7, 1.2, true, [
   tor(1.38, 0.09, 0, 0.2, 0, 0x3c7b79, { rx: Math.PI / 2 }),
   cyl(0.22, 1.5, 1.45, 1.2, 0, 0x4f9e9b, 0.34, { rz: -0.7 }),
   tor(0.95, 0.12, 0, 2.1, 0, CHARCOAL, { rz: Math.PI / 2 }, 0.5),
-  cyl(0.3, 0.24, 0, 1.86, 0, CHARCOAL),
   box(0.7, 0.5, 0.03, 0, 0.9, 1.36, CREAM),
-], [ccyl(1.35, 1.7, 0, 0.85, 0)]));
+], [ccyl(1.35, 1.7, 0, 0.85, 0)],
+  touch([0, 1.86, 0], 'bob', 'chime', [
+    cyl(0.3, 0.24, 0, 0, 0, CHARCOAL),
+    cyl(0.14, 0.12, 0, 0.16, 0, 0x8b969c),
+  ], { duration: 1.4 })));
 
 // ---- living room ----
 reg(A('l_books', 1.5, 1.3, true, [
@@ -311,12 +333,14 @@ reg(A('b_clock', 2.4, 0.9, true, [
   tor(0.9, 0.08, 0, 1.2, 0.54, BRASS, { rx: 0 }),
   box(0.08, 0.55, 0.04, 0, 1.42, 0.58, CHARCOAL),
   box(0.4, 0.07, 0.04, 0.18, 1.2, 0.58, CHARCOAL),
-  sph(0.4, 0.4, 0.4, -0.7, 2.45, 0, GOLD),
-  sph(0.4, 0.4, 0.4, 0.7, 2.45, 0, GOLD),
-  box(0.14, 0.5, 0.14, 0, 2.4, 0, BRASS, { rz: 0.4 }),
   box(2.5, 0.16, 1.1, 0, 2.32, 0, 0x9c3a3a),
   ...rep(2, -0.8, 0.8, (t) => cyl(0.16, 0.3, t, 0.06, 0.4, BRASS)),
-], [cbox(2.4, 2.4, 1.0, 0, 1.2, 0)]));
+], [cbox(2.4, 2.4, 1.0, 0, 1.2, 0)],
+  touch([0, 2.4, 0], 'swing', 'ding', [
+    sph(0.4, 0.4, 0.4, -0.7, 0.05, 0, GOLD),
+    sph(0.4, 0.4, 0.4, 0.7, 0.05, 0, GOLD),
+    box(0.14, 0.5, 0.14, 0, 0, 0, BRASS, { rz: 0.4 }),
+  ], { duration: 1.5, radius: 2.4 })));
 
 reg(A('b_drawer', 2.5, 1.4, true, [
   box(3.4, 2.5, 2.4, 0, 1.25, 0, WOOD),
@@ -414,16 +438,18 @@ reg(A('ba_soap', 1.0, 1.0, true, [
 reg(A('ba_duck', 1.7, 1.0, true, [
   sph(1.5, 1.1, 1.3, 0, 1.0, 0, YELLOW),
   sph(1.3, 0.5, 1.1, -0.1, 1.5, 0, 0xffdf73),
-  sph(0.75, 0.75, 0.75, 1.15, 2.0, 0, YELLOW),
-  box(0.7, 0.25, 0.5, 1.95, 1.9, 0, ORANGE),
-  box(0.4, 0.14, 0.42, 2.15, 1.82, 0, 0xd97721),
-  sph(0.1, 0.1, 0.1, 1.5, 2.25, 0.3, BLACK),
-  sph(0.1, 0.1, 0.1, 1.5, 2.25, -0.3, BLACK),
-  sph(0.04, 0.04, 0.04, 1.56, 2.32, 0.36, WHITE),
   sph(0.5, 0.3, 0.42, -1.2, 1.35, 0, 0xffdf73),
   sph(0.3, 0.16, 0.5, 0, 0.9, 0.95, 0xf5c93b),
   sph(0.3, 0.16, 0.5, 0, 0.9, -0.95, 0xf5c93b),
-], [cbox(2.4, 1.7, 2.0, -0.2, 0.85, 0)]));
+], [cbox(2.4, 1.7, 2.0, -0.2, 0.85, 0)],
+  touch([1.15, 2.0, 0], 'bob', 'squeak', [
+    sph(0.75, 0.75, 0.75, 0, 0, 0, YELLOW),
+    box(0.7, 0.25, 0.5, 0.8, -0.1, 0, ORANGE),
+    box(0.4, 0.14, 0.42, 1.0, -0.18, 0, 0xd97721),
+    sph(0.1, 0.1, 0.1, 0.35, 0.25, 0.3, BLACK),
+    sph(0.1, 0.1, 0.1, 0.35, 0.25, -0.3, BLACK),
+    sph(0.04, 0.04, 0.04, 0.41, 0.32, 0.36, WHITE),
+  ], { duration: 0.9 })));
 
 reg(A('ba_cup', 2.2, 1.1, true, [
   cyl(1.3, 2.2, 0, 1.1, 0, PASTELBLUE, 1.1),
@@ -889,14 +915,14 @@ reg(A('st_drone', 0.95, 1.0, true, [
   box(2.8, 0.16, 0.3, 0, 0.95, 0, GRAY),
   box(0.3, 0.16, 2.8, 0, 0.95, 0, GRAY),
   ...rep(4, 0, 3, (t, i) => cyl(0.3, 0.24, [1.5, -1.5, 1.5, -1.5][i], 0.95, [1.5, 1.5, -1.5, -1.5][i], 0x4a4f5a)),
-  cyl(0.85, 0.08, 1.5, 1.05, 1.5, 0x6b7280),
-  cyl(0.85, 0.08, -1.5, 1.05, 1.5, 0x6b7280),
-  cyl(0.85, 0.08, 1.5, 1.05, -1.5, 0x6b7280),
-  cyl(0.85, 0.08, -1.5, 1.05, -1.5, 0x6b7280),
   ...rep(4, 0, 3, (t, i) => cyl(0.12, 0.5, [1.5, -1.5, 1.5, -1.5][i], 0.4, [1.5, 1.5, -1.5, -1.5][i], CHARCOAL)),
   sph(0.1, 0.1, 0.1, 0.9, 0.35, 0.9, RED),
   sph(0.1, 0.1, 0.1, -0.9, 0.35, 0.9, GREEN),
-], [cbox(2.0, 0.95, 2.0, 0, 0.5, 0)]));
+], [cbox(2.0, 0.95, 2.0, 0, 0.5, 0)],
+  touch([0, 1.05, 0], 'spin', 'whirr', [
+    ...rep(4, 0, 3, (_t, i) => cyl(0.85, 0.08, [1.5, -1.5, 1.5, -1.5][i], 0, [1.5, 1.5, -1.5, -1.5][i], 0x6b7280)),
+    ...rep(4, 0, 3, (_t, i) => box(1.7, 0.05, 0.18, [1.5, -1.5, 1.5, -1.5][i], 0.06, [1.5, 1.5, -1.5, -1.5][i], 0x8b969c)),
+  ], { duration: 1.8, radius: 2.8 })));
 
 reg(A('st_panel', 0.5, 1.4, true, [
   box(3.2, 0.5, 2.6, 0, 0.25, 0, 0x4b5563),
@@ -1086,13 +1112,18 @@ reg(A('bs_washer', 3.0, 1.55, true, [
   box(3.24, 0.24, 3.04, 0, 2.94, 0, 0xdcdcdc),
   box(3.0, 0.1, 2.8, 0, 3.05, 0, 0xededed),
   cyl(1.0, 0.16, 0, 1.4, 1.52, 0x8b969c, 1.0, { rx: Math.PI / 2 }),
-  cyl(0.85, 0.14, 0, 1.4, 1.58, GLASS, 0.85, { rx: Math.PI / 2 }),
   tor(1.0, 0.1, 0, 1.4, 1.55, 0x6b7280, { rx: 0 }),
   box(2.6, 0.5, 0.12, 0, 2.6, 1.52, 0xdcdcdc),
   ...rep(3, 0, 2, (_t, i) => cyl(0.2, 0.14, -0.8 + i * 0.8, 2.6, 1.62, [CHARCOAL, RED, GREEN][i], 0.2, { rx: Math.PI / 2 })),
   box(1.0, 0.24, 0.1, 1.0, 2.6, 1.56, 0x4a4f5a),
   ...rep(4, 0, 3, (_t, i) => box(0.3, 0.24, 0.3, [-1.3, 1.3, -1.3, 1.3][i], 0.12, [1.3, 1.3, -1.3, -1.3][i], CHARCOAL)),
-], [cbox(3.2, 3.0, 3.0, 0, 1.5, 0)]));
+], [cbox(3.2, 3.0, 3.0, 0, 1.5, 0)],
+  touch([0, 1.4, 1.58], 'spinz', 'whirr', [
+    cyl(0.85, 0.14, 0, 0, 0, GLASS, 0.85, { rx: Math.PI / 2 }),
+    sph(0.3, 0.3, 0.1, 0.3, 0.2, 0.02, RED),
+    sph(0.26, 0.26, 0.1, -0.28, -0.18, 0.02, PASTELBLUE),
+    sph(0.2, 0.2, 0.08, 0.1, -0.35, 0.03, MINT),
+  ], { duration: 2.0 })));
 
 reg(A('bs_shelf', 1.5, 2.0, true, [
   box(4.4, 0.3, 1.8, 0, 1.35, 0, WOOD),
@@ -1148,12 +1179,15 @@ reg(A('g_toolbox', 2.1, 1.65, true, [
   box(3.66, 0.24, 2.06, 0, 1.82, 0, 0x9c3a3a),
   box(3.4, 0.1, 1.8, 0, 2.0, 0, 0xb84848),
   box(3.66, 0.2, 2.06, 0, 0.1, 0, 0x9c3a3a),
-  box(1.4, 0.24, 0.24, 0, 2.3, 0, CHARCOAL),
-  ...rep(2, -0.6, 0.6, (t) => box(0.16, 0.5, 0.16, t, 2.1, 0, 0x8b969c)),
   ...rep(2, -1.2, 1.2, (t) => box(0.4, 0.4, 0.14, t, 0.5, 1.03, ALUM)),
   box(3.4, 0.06, 0.1, 0, 1.2, 1.02, 0x9c3a3a),
   ...rep(3, -1.0, 1.0, (t) => box(0.2, 0.12, 0.6, t, 2.14, 0.4, ALUM)),
-], [cbox(3.6, 2.1, 2.0, 0, 1.05, 0)]));
+], [cbox(3.6, 2.1, 2.0, 0, 1.05, 0)],
+  touch([0, 2.1, 0], 'swing', 'clack', [
+    box(1.4, 0.24, 0.24, 0, 0.2, 0, CHARCOAL),
+    box(0.16, 0.5, 0.16, -0.6, 0, 0, 0x8b969c),
+    box(0.16, 0.5, 0.16, 0.6, 0, 0, 0x8b969c),
+  ], { duration: 1.2 })));
 
 reg(A('g_tire', 1.45, 2.1, true, [
   tor(1.75, 0.75, 0, 0.72, 0, CHARCOAL, { rx: Math.PI / 2 }),
@@ -1354,12 +1388,14 @@ reg(A('y_gnome', 3.3, 0.72, true, [
   sph(0.22, 0.22, 0.2, 0, 2.35, 0.7, 0xe8b58a),
   sph(0.08, 0.08, 0.06, -0.28, 2.6, 0.6, CHARCOAL),
   sph(0.08, 0.08, 0.06, 0.28, 2.6, 0.6, CHARCOAL),
-  cyl(0.05, 1.1, 0, 3.05, 0, RED, 0.9),
-  cyl(0.86, 0.34, 0, 3.15, 0, RED),
-  cyl(0.8, 0.06, 0, 3.32, 0, 0xc44b4b),
   ...rep(2, -0.9, 0.9, (t) => sph(0.26, 0.34, 0.26, t, 1.5, 0.2, RED)),
   ...rep(2, -0.5, 0.5, (t) => box(0.4, 0.3, 0.6, t, 0.15, 0.3, CHARCOAL)),
-], [ccyl(1.15, 1.4, 0, 0.7, 0), ccyl(0.9, 3.3, 0, 1.65, 0)]));
+], [ccyl(1.15, 1.4, 0, 0.7, 0), ccyl(0.9, 3.3, 0, 1.65, 0)],
+  touch([0, 3.0, 0], 'spin', 'chime', [
+    cyl(0.05, 1.1, 0, 0.05, 0, RED, 0.9),
+    cyl(0.86, 0.34, 0, 0.15, 0, RED),
+    cyl(0.8, 0.06, 0, 0.32, 0, 0xc44b4b),
+  ], { duration: 1.3, radius: 2.4 })));
 
 reg(A('y_mushroom', 2.3, 1.75, true, [
   cyl(0.7, 1.8, 0, 0.9, 0, CREAM, 0.95),
@@ -1381,11 +1417,13 @@ reg(A('y_birdbath', 2.9, 1.85, true, [
   cyl(1.9, 0.5, 0, 2.45, 0, CONCRETE, 1.2),
   tor(1.9, 0.14, 0, 2.68, 0, 0x8a8a84, { rx: Math.PI / 2 }),
   cyl(1.72, 0.1, 0, 2.72, 0, 0x6fb0e8),
-  sph(0.34, 0.3, 0.3, 1.2, 2.95, 0.4, 0x8b5a2b),
-  sph(0.2, 0.2, 0.18, 1.45, 3.15, 0.5, 0x8b5a2b),
-  box(0.24, 0.1, 0.14, 1.62, 3.14, 0.5, ORANGE),
   ...rep(4, 0, Math.PI * 1.5, (t) => sph(0.3, 0.1, 0.3, Math.cos(t) * 1.3, 0.42, Math.sin(t) * 1.3, MOSS)),
-], [ccyl(1.5, 0.5, 0, 0.25, 0), ccyl(1.9, 0.6, 0, 2.6, 0)]));
+], [ccyl(1.5, 0.5, 0, 0.25, 0), ccyl(1.9, 0.6, 0, 2.6, 0)],
+  touch([1.2, 2.95, 0.4], 'bob', 'chime', [
+    sph(0.34, 0.3, 0.3, 0, 0, 0, 0x8b5a2b),
+    sph(0.2, 0.2, 0.18, 0.25, 0.2, 0.1, 0x8b5a2b),
+    box(0.24, 0.1, 0.14, 0.42, 0.19, 0.1, ORANGE),
+  ], { duration: 1.1, radius: 2.8 })));
 
 reg(A('y_hose', 1.15, 2.0, true, [
   ...rep(5, 0, 4, (_t, i) => tor(2.1 - i * 0.22, 0.22, 0, 0.25 + i * 0.22, 0, i % 2 ? 0x2f6b46 : 0x3f7d4a, { rx: Math.PI / 2 })),

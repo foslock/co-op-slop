@@ -69,4 +69,10 @@ export const sfx = {
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'triangle', 0.6), i * 140));
   },
   countdown: (final = false) => tone(final ? 880 : 440, final ? 0.4 : 0.15, 'sine', 0.6),
+  // touch-response sounds for interactable props
+  ding: () => { tone(1180, 0.45, 'sine', 0.45); setTimeout(() => tone(1760, 0.4, 'sine', 0.3), 70); },
+  squeak: () => tone(760, 0.16, 'sine', 0.4, 620),
+  clack: () => { tone(190, 0.09, 'square', 0.35, -70); setTimeout(() => tone(150, 0.07, 'square', 0.25, -50), 80); },
+  whirr: () => { for (let i = 0; i < 4; i++) setTimeout(() => tone(110 + i * 28, 0.2, 'sawtooth', 0.2), i * 55); },
+  chime: () => { [784, 988, 1319].forEach((f, i) => setTimeout(() => tone(f, 0.32, 'triangle', 0.32), i * 90)); },
 };

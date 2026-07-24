@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { ARCHETYPES, type GadgetState, type ItemType, type LevelData, type Vec3 } from 'shared';
+import { ARCHETYPES, type GadgetState, type InteractDef, type ItemType, type LevelData, type PartDef, type Vec3 } from 'shared';
 import { GROUP_LEVEL, groups } from './physics';
-import { TraverseRope } from './traverseRope';
+import { Rope } from './rope';
 
 export interface Climbable {
   a: THREE.Vector3; // bottom
@@ -17,6 +17,15 @@ export interface Plate {
   pos: THREE.Vector3;
   mesh: THREE.Mesh;
   needsTwo: boolean;
+}
+
+/** A prop's cosmetic touch-response: its own little group, animated on contact. */
+export interface Interactable {
+  group: THREE.Group;
+  def: InteractDef;
+  pos: THREE.Vector3; // world position of the pivot, for proximity checks
+  baseRotY: number;
+  startedAt: number; // elapsed seconds when it was last set off, -1 when idle
 }
 
 export interface ItemVisual {
@@ -117,8 +126,12 @@ export interface LevelHandles {
   group: THREE.Group;
   bridges: Map<number, Bridge>;
   bridgeByCollider: Map<number, Bridge>;
+  /** Ladders — rigid lines you climb. */
   climbables: Climbable[];
-  traverses: TraverseRope[];
+  /** Simulated ropes: strung spans and vertical hangs alike. */
+  ropes: Rope[];
+  /** Props that react cosmetically to being touched. */
+  interactables: Interactable[];
   plates: Plate[];
   items: Map<number, ItemVisual>;
   flagAnimate: (t: number) => void;
@@ -127,6 +140,16 @@ export interface LevelHandles {
   stepRopes(dt: number, gravityScale: number): void;
   updateVisuals(t: number): void;
   dispose(): void;
+}
+
+function makeGeo(part: PartDef): THREE.BufferGeometry {
+  const [a, b, c] = part.size;
+  switch (part.shape) {
+    case 'box': return new THREE.BoxGeometry(a, b, c);
+    case 'cyl': return new THREE.CylinderGeometry(a, c || a, b, 14);
+    case 'sphere': { const g = new THREE.SphereGeometry(1, 14, 10); g.scale(a, b, c); return g; }
+    case 'torus': return new THREE.TorusGeometry(a, b, 8, 18, (c || 1) * Math.PI * 2);
+  }
 }
 
 const texCache: THREE.CanvasTexture[] = [];
@@ -179,14 +202,7 @@ export function buildLevel(
       new THREE.Vector3(1, 1, 1),
     );
     for (const part of arch.parts) {
-      let g: THREE.BufferGeometry;
-      const [a, b, c] = part.size;
-      switch (part.shape) {
-        case 'box': g = new THREE.BoxGeometry(a, b, c); break;
-        case 'cyl': g = new THREE.CylinderGeometry(a, c || a, b, 14); break;
-        case 'sphere': g = new THREE.SphereGeometry(1, 14, 10); g.scale(a, b, c); break;
-        case 'torus': g = new THREE.TorusGeometry(a, b, 8, 18, (c || 1) * Math.PI * 2); break;
-      }
+      const g = makeGeo(part);
       pm.compose(
         new THREE.Vector3(part.pos[0], part.pos[1], part.pos[2]),
         q.setFromEuler(e.set(part.rotX ?? 0, 0, part.rotZ ?? 0)),
@@ -273,7 +289,45 @@ export function buildLevel(
   const climbables: Climbable[] = [];
   const plates: Plate[] = [];
 
-  const traverses: TraverseRope[] = [];
+  const ropes: Rope[] = [];
+  const interactables: Interactable[] = [];
+  let ropeId = 1000; // grapple ropes are created at runtime, after gadget ids
+
+  // ---- touch-responsive props ----
+  // These parts stay out of the merged mesh so each instance can animate on its
+  // own. They carry no colliders, so nothing here changes how the level plays.
+  const interactMats = new Map<number, THREE.MeshStandardMaterial>();
+  for (const prop of level.props) {
+    const def = ARCHETYPES[prop.archetype]?.interact;
+    if (!def) continue;
+    const rotQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, prop.rotY, 0));
+    const pivot = new THREE.Vector3(...def.pivot).applyQuaternion(rotQ)
+      .add(new THREE.Vector3(prop.pos.x, prop.pos.y, prop.pos.z));
+    const ig = new THREE.Group();
+    ig.name = `interact:${prop.archetype}`;
+    ig.position.copy(pivot);
+    ig.rotation.y = prop.rotY;
+    for (const part of def.parts) {
+      let mat = interactMats.get(part.color);
+      if (!mat) {
+        mat = new THREE.MeshStandardMaterial({ color: part.color, roughness: 0.82 });
+        patchOcclusionFade(mat);
+        disposables.push(mat);
+        interactMats.set(part.color, mat);
+      }
+      const geo = makeGeo(part);
+      disposables.push(geo);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(part.pos[0], part.pos[1], part.pos[2]);
+      mesh.rotation.set(part.rotX ?? 0, 0, part.rotZ ?? 0);
+      mesh.castShadow = true;
+      ig.add(mesh);
+    }
+    group.add(ig);
+    // Far-field decor still needs the parts drawn (a duck with no head looks
+    // broken), but only props on the path are close enough to ever be touched.
+    if (prop.solid) interactables.push({ group: ig, def, pos: pivot.clone(), baseRotY: prop.rotY, startedAt: -1 });
+  }
   const knotGeo = sharedGeo(new THREE.SphereGeometry(0.16, 10, 8));
   const postGeo = sharedGeo(new THREE.CylinderGeometry(0.16, 0.2, 0.5, 8));
   const plateGeo = sharedGeo(new THREE.CylinderGeometry(0.85, 0.95, 0.16, 16));
@@ -300,24 +354,16 @@ export function buildLevel(
     return new THREE.Vector3(best.x - anchor.x, 0, best.z - anchor.z).normalize();
   };
 
-  const buildRope = (top: Vec3, length: number) => {
-    const ropeGroup = new THREE.Group();
-    ropeGroup.position.set(top.x, top.y, top.z);
-    const line = new THREE.Mesh(sharedGeo(new THREE.CylinderGeometry(0.05, 0.05, length, 6)), ropeMat);
-    line.position.y = -length / 2;
-    ropeGroup.add(line);
-    const knotGeo = sharedGeo(new THREE.SphereGeometry(0.1, 8, 6));
-    for (let y = 0.8; y < length; y += 1.2) {
-      const knot = new THREE.Mesh(knotGeo, ropeMat);
-      knot.position.y = -y;
-      ropeGroup.add(knot);
-    }
-    group.add(ropeGroup);
-    climbables.push({
-      a: new THREE.Vector3(top.x, top.y - length, top.z),
-      b: new THREE.Vector3(top.x, top.y, top.z),
-      exitDir: findExitDir(top),
-    });
+  // A vertical rope: simulated like the strung ones, so it swings when you catch
+  // it and sways with your weight while you climb.
+  const buildRope = (top: Vec3, length: number, id = ropeId++) => {
+    const rope = new Rope(id, 'hang', top, { x: top.x, y: top.y - length, z: top.z }, top.y, ropeMat);
+    rope.exitDir = findExitDir(top);
+    group.add(rope.mesh);
+    ropes.push(rope);
+    const knot = new THREE.Mesh(knotGeo, ropeMat);
+    knot.position.set(top.x, top.y, top.z);
+    group.add(knot);
   };
 
   for (const g of level.gadgets) {
@@ -424,11 +470,11 @@ export function buildLevel(
         exitDir: dir.clone(),
       });
     } else if (g.kind === 'rope') {
-      buildRope(g.top, g.length);
+      buildRope(g.top, g.length, g.id);
     } else if (g.kind === 'traverse') {
-      const rope = new TraverseRope(g.id, g.a, g.b, g.deckY, traverseMat);
+      const rope = new Rope(g.id, 'span', g.a, g.b, g.deckY, traverseMat);
       group.add(rope.mesh);
-      traverses.push(rope);
+      ropes.push(rope);
       // anchor knots + a stubby post at each end so the rope reads as tied off
       for (const end of [g.a, g.b]) {
         const knot = new THREE.Mesh(knotGeo, traverseMat);
@@ -517,11 +563,47 @@ export function buildLevel(
   };
 
   const stepRopes = (dt: number, gravityScale: number) => {
-    for (const r of traverses) r.step(dt, gravityScale);
+    for (const r of ropes) r.step(dt, gravityScale);
+  };
+
+  const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
+
+  const animateInteractables = (t: number) => {
+    for (const it of interactables) {
+      if (it.startedAt < 0) continue;
+      const u = (t - it.startedAt) / it.def.duration;
+      const g = it.group;
+      if (u >= 1) {
+        it.startedAt = -1;
+        g.rotation.set(0, it.baseRotY, 0);
+        g.position.y = it.pos.y;
+        continue;
+      }
+      const decay = 1 - u;
+      switch (it.def.kind) {
+        case 'spin':
+          g.rotation.y = it.baseRotY + easeOut(u) * Math.PI * 6;
+          break;
+        case 'spinz':
+          g.rotation.z = easeOut(u) * Math.PI * 8;
+          break;
+        case 'swing':
+          g.rotation.z = Math.sin(u * Math.PI * 7) * 0.45 * decay;
+          break;
+        case 'bob':
+          g.position.y = it.pos.y + Math.abs(Math.sin(u * Math.PI * 3)) * 0.5 * decay;
+          break;
+        case 'pop':
+          g.position.y = it.pos.y + Math.sin(u * Math.PI) * 1.4;
+          g.rotation.z = Math.sin(u * Math.PI * 2) * 0.3;
+          break;
+      }
+    }
   };
 
   const updateVisuals = (t: number) => {
-    for (const r of traverses) r.updateGeometry();
+    for (const r of ropes) r.updateGeometry();
+    animateInteractables(t);
     for (const it of items.values()) {
       if (it.taken) continue;
       it.group.rotation.y = t * 1.4;
@@ -531,7 +613,7 @@ export function buildLevel(
   };
 
   const dispose = () => {
-    for (const r of traverses) r.dispose();
+    for (const r of ropes) r.dispose();
     scene.remove(group);
     group.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -546,7 +628,8 @@ export function buildLevel(
     bridges,
     bridgeByCollider,
     climbables,
-    traverses,
+    ropes,
+    interactables,
     plates,
     items,
     flagAnimate,
