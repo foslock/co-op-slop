@@ -65,6 +65,7 @@ export class Game {
   private pingMarkers: { sprite: THREE.Sprite; until: number }[] = [];
   private lastStateSentAt = 0;
   private goPlayed = false;
+  private ropeHintShown = false;
   private paused = false;
   private prevLocked = false;
   private fallCounts = new Map<string, number>();
@@ -412,12 +413,14 @@ export class Game {
     while (this.accumulator >= FIXED_DT) {
       this.accumulator -= FIXED_DT;
       for (const bridge of this.handles.bridges.values()) bridge.step(FIXED_DT);
+      this.handles.stepRopes(FIXED_DT, gravityScale);
       const events = this.local.step(FIXED_DT, {
         input: this.input,
         forward,
         right,
         bridgeByCollider: this.handles.bridgeByCollider,
         climbables: this.handles.climbables,
+        traverses: this.handles.traverses,
         tetherTo: this.tetherTo,
         gravityScale,
       });
@@ -425,6 +428,10 @@ export class Game {
       for (const ev of events) {
         if (ev.type === 'knockdown') this.startLocalRagdoll(ev.vel);
         else if (ev.type === 'fell') this.recordOwnFall('You fell! Back to the checkpoint');
+        else if (ev.type === 'ropeGrabbed' && !this.ropeHintShown) {
+          this.ropeHintShown = true;
+          this.hud.toast('Hanging on! W/S to shimmy across · Space to swing off');
+        }
       }
     }
     for (const bridge of this.handles.bridges.values()) bridge.syncMesh();

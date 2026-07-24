@@ -57,6 +57,7 @@ export class Hud {
           <div class="pause-help">
             <b>WASD</b> move &nbsp;<b>Space</b> jump &nbsp;<b>Mouse</b> look<br>
             ropes/ladders grab on touch &nbsp;<b>E</b> let go<br>
+            strung ropes: hang on, <b>W/S</b> to shimmy across<br>
             <b>F</b> hold hands &nbsp;<b>Z</b> dive &nbsp;<b>R</b> reset to checkpoint<br>
             <b>Q</b> use item &nbsp;<b>G</b> give item &nbsp;<b>B</b> ping<br>
             hold <b>Right Click</b> to zoom with the telescope

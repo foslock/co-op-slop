@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { ANIM, GAME, MOVE, PLAYER } from 'shared';
+import { ANIM, GAME, MOVE, PLAYER, TRAVERSE } from 'shared';
 import { GROUP_LEVEL, GROUP_PLAYER, groups } from './physics';
 import type { Bridge, Climbable } from './levelBuilder';
+import type { TraverseRope } from './traverseRope';
 import type { Input } from '../input';
 import { sfx } from '../audio';
 
@@ -12,6 +13,7 @@ export interface StepCtx {
   right: THREE.Vector3;
   bridgeByCollider: Map<number, Bridge>;
   climbables: Climbable[];
+  traverses: TraverseRope[];
   tetherTo: THREE.Vector3 | null;
   gravityScale: number; // altitude-based: 1.0 at ground level → 0.55 in space
 }
@@ -19,6 +21,7 @@ export interface StepCtx {
 export type PlayerEvent =
   | { type: 'knockdown'; vel: THREE.Vector3 }
   | { type: 'fell' }
+  | { type: 'ropeGrabbed' }
   | { type: 'landed'; impact: number };
 
 export class LocalPlayer {
@@ -40,6 +43,7 @@ export class LocalPlayer {
   private jumpBufferedAt = -10;
   private jumpsUsed = 0;
   private climb: { line: Climbable; t: number } | null = null;
+  private hang: { rope: TraverseRope; t: number } | null = null;
   private climbCooldownUntil = 0;
   private time = 0;
   private tmp = new THREE.Vector3();
@@ -74,7 +78,14 @@ export class LocalPlayer {
     this.body.setNextKinematicTranslation({ x: p.x, y: p.y + 0.7, z: p.z });
     this.vel.set(0, 0, 0);
     this.climb = null;
+    this.releaseRope();
     this.jumpsUsed = 0;
+  }
+
+  private releaseRope() {
+    if (!this.hang) return;
+    this.hang.rope.setRider(null);
+    this.hang = null;
   }
 
   setPositionDirect(p: THREE.Vector3) {
@@ -83,7 +94,7 @@ export class LocalPlayer {
   }
 
   isClimbing(): boolean {
-    return this.climb !== null;
+    return this.climb !== null || this.hang !== null;
   }
 
   /** Run one fixed physics step. Returns gameplay events for the orchestrator. */
@@ -102,7 +113,7 @@ export class LocalPlayer {
     const feetY = pos.y - 0.7;
     if (
       pos.y < GAME.killPlaneY ||
-      (this.vel.y < -6 && feetY < this.checkpoint.pos.y - GAME.respawnFallBelow && !this.climb)
+      (this.vel.y < -6 && feetY < this.checkpoint.pos.y - GAME.respawnFallBelow && !this.climb && !this.hang)
     ) {
       this.teleport(this.checkpoint.pos);
       events.push({ type: 'fell' });
@@ -154,6 +165,83 @@ export class LocalPlayer {
         this.yaw = Math.atan2(face.x, face.z);
         this.anim = ANIM.climb;
         return events;
+      }
+    }
+
+    // ---- hanging from a traverse rope ----
+    if (this.hang) {
+      const { rope } = this.hang;
+      // W/S walk you along the rope in whichever direction you're looking
+      const along = ctx.forward.dot(rope.dir) >= 0 ? 1 : -1;
+      this.hang.t = THREE.MathUtils.clamp(
+        this.hang.t + (f * along * TRAVERSE.shimmySpeed * dt) / Math.max(0.1, rope.span),
+        0,
+        1,
+      );
+      rope.setRider(this.hang.t);
+      const jumpOff = this.time - this.jumpBufferedAt < MOVE.jumpBuffer;
+      if (input.consumePress('KeyE') || jumpOff) {
+        // let go — you keep whatever the rope was swinging you at
+        const swing = rope.velocityAt(this.hang.t, dt);
+        this.jumpBufferedAt = -10;
+        this.climbCooldownUntil = this.time + 0.6;
+        this.vel.set(swing.x * 0.5, Math.min(0, swing.y * 0.5), swing.z * 0.5);
+        if (jumpOff) {
+          this.vel.y = MOVE.jumpVelocity * 0.85;
+          this.vel.addScaledVector(ctx.forward, 3.0);
+          sfx.jump();
+        }
+        this.releaseRope();
+      } else if (this.hang.t <= 0.02 || this.hang.t >= 0.98) {
+        // reached an end — haul yourself up onto that platform
+        const exit = rope.exitPoint(this.hang.t);
+        this.releaseRope();
+        this.teleport(exit);
+        this.vel.y = 2.0;
+        this.climbCooldownUntil = this.time + 0.7;
+      } else {
+        const p = rope.pointAt(this.hang.t);
+        p.y -= TRAVERSE.hangDrop;
+        this.setPositionDirect(p);
+        this.yaw = Math.atan2(rope.dir.x * along, rope.dir.z * along);
+        this.anim = ANIM.climb;
+        this.grounded = false;
+        return events;
+      }
+    }
+
+    // ---- grab a traverse rope (automatic, like ladders) ----
+    if (!this.climb && !this.hang && this.time > this.climbCooldownUntil) {
+      const grip = new THREE.Vector3(pos.x, pos.y + 0.35, pos.z);
+      const hit = new THREE.Vector3();
+      let bestRope: TraverseRope | null = null;
+      let bestT = 0;
+      let bestD = 1.2;
+      for (const rope of ctx.traverses) {
+        const { t, dist } = rope.nearest(grip);
+        if (dist < bestD) {
+          bestD = dist;
+          bestT = t;
+          bestRope = rope;
+        }
+      }
+      if (bestRope) {
+        // in the air you always catch it; on foot only when heading for it, so
+        // standing near the anchor doesn't drag you off the edge
+        bestRope.pointAt(bestT, hit);
+        const toX = hit.x - pos.x;
+        const toZ = hit.z - pos.z;
+        const toLen = Math.hypot(toX, toZ) || 1;
+        const toward = (this.vel.x * toX + this.vel.z * toZ) / toLen;
+        if (!this.grounded || toward > 0.6) {
+          this.hang = { rope: bestRope, t: bestT };
+          bestRope.setRider(bestT);
+          this.vel.set(0, 0, 0);
+          this.anim = ANIM.climb;
+          sfx.grapple();
+          events.push({ type: 'ropeGrabbed' });
+          return events;
+        }
       }
     }
 

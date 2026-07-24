@@ -35,6 +35,10 @@ export interface ColliderDef {
   shape: 'box' | 'cyl';
   size: [number, number, number]; // box: [w,h,d] · cyl: [r,h,_]
   pos: [number, number, number];
+  // Tilt, applied before the prop's own Y rotation. Lets a prop carry a sloped
+  // walkable face (leaning broom handles, ramps) instead of only axis-aligned boxes.
+  rotX?: number;
+  rotZ?: number;
 }
 
 export interface Archetype {
@@ -73,7 +77,11 @@ export type GadgetData =
       plates: Vec3[]; // standing positions of pressure plates
     }
   | { kind: 'ladder'; id: number; base: Vec3; height: number; rotY: number }
-  | { kind: 'rope'; id: number; top: Vec3; length: number };
+  | { kind: 'rope'; id: number; top: Vec3; length: number }
+  // A slack rope strung between two platform edges across an unjumpable gap.
+  // Simulated as a verlet string on each client; you hang under it and shimmy
+  // across. `a`/`b` are the anchor knots, `deckY` the platform surface they sit on.
+  | { kind: 'traverse'; id: number; a: Vec3; b: Vec3; deckY: number };
 
 export type ItemType = 'doublejump' | 'telescope' | 'grapple';
 

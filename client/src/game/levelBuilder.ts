@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { ARCHETYPES, type GadgetState, type ItemType, type LevelData, type Vec3 } from 'shared';
 import { GROUP_LEVEL, groups } from './physics';
+import { TraverseRope } from './traverseRope';
 
 export interface Climbable {
   a: THREE.Vector3; // bottom
@@ -117,10 +118,13 @@ export interface LevelHandles {
   bridges: Map<number, Bridge>;
   bridgeByCollider: Map<number, Bridge>;
   climbables: Climbable[];
+  traverses: TraverseRope[];
   plates: Plate[];
   items: Map<number, ItemVisual>;
   flagAnimate: (t: number) => void;
   addRope(top: Vec3, length: number): void;
+  /** Advance the traverse-rope simulation; call once per fixed physics step. */
+  stepRopes(dt: number, gravityScale: number): void;
   updateVisuals(t: number): void;
   dispose(): void;
 }
@@ -198,11 +202,15 @@ export function buildLevel(
       const rotQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, prop.rotY, 0));
       for (const col of arch.colliders) {
         const local = new THREE.Vector3(col.pos[0], col.pos[1], col.pos[2]).applyQuaternion(rotQ);
+        // a collider's own tilt (ramps, leaning handles) applies before the prop's Y spin
+        const q = (col.rotX || col.rotZ)
+          ? rotQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(col.rotX ?? 0, 0, col.rotZ ?? 0)))
+          : rotQ;
         const desc = (col.shape === 'box'
           ? R.ColliderDesc.cuboid(col.size[0] / 2, col.size[1] / 2, col.size[2] / 2)
           : R.ColliderDesc.cylinder(col.size[1] / 2, col.size[0]))
           .setTranslation(prop.pos.x + local.x, prop.pos.y + local.y, prop.pos.z + local.z)
-          .setRotation({ x: rotQ.x, y: rotQ.y, z: rotQ.z, w: rotQ.w })
+          .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
           .setCollisionGroups(levelGroups)
           .setFriction(0.9);
         world.createCollider(desc, staticBody);
@@ -265,12 +273,16 @@ export function buildLevel(
   const climbables: Climbable[] = [];
   const plates: Plate[] = [];
 
+  const traverses: TraverseRope[] = [];
+  const knotGeo = sharedGeo(new THREE.SphereGeometry(0.16, 10, 8));
+  const postGeo = sharedGeo(new THREE.CylinderGeometry(0.16, 0.2, 0.5, 8));
   const plateGeo = sharedGeo(new THREE.CylinderGeometry(0.85, 0.95, 0.16, 16));
   const plateMatOff = sharedMat(0xc0392b, { emissive: 0x731f14, emissiveIntensity: 0.5 });
   const slabMat = sharedMat(0xe8b54a, { roughness: 0.6 });
   const railMat = sharedMat(0x8d6e63);
   const rungMat = sharedMat(0xbf9670);
   const ropeMat = sharedMat(0xc9a86a, { roughness: 1 });
+  const traverseMat = sharedMat(0xb08c52, { roughness: 1 });
 
   const findExitDir = (anchor: Vec3): THREE.Vector3 | null => {
     // point toward the nearest path node at roughly the anchor's height
@@ -353,22 +365,58 @@ export function buildLevel(
         plates.push({ gadgetId: g.id, plateIdx: idx, pos: new THREE.Vector3(pp.x, pp.y, pp.z), mesh, needsTwo });
       });
     } else if (g.kind === 'ladder') {
+      // Oversized ladder: chunky rails with feet and caps, thick rungs with grip
+      // bands, and cross-bracing on the back — it should read as a real object at
+      // this scale, not a couple of sticks.
       const dir = new THREE.Vector3(Math.cos(g.rotY), 0, Math.sin(g.rotY));
       const perp = new THREE.Vector3(-dir.z, 0, dir.x);
-      const railGeo = sharedGeo(new THREE.BoxGeometry(0.12, g.height, 0.12));
+      const HALF = 0.95; // rail half-spacing
+      const at = (side: number, y: number, along = 0) =>
+        new THREE.Vector3(
+          g.base.x + perp.x * HALF * side + dir.x * along,
+          g.base.y + y,
+          g.base.z + perp.z * HALF * side + dir.z * along,
+        );
+      const railGeo = sharedGeo(new THREE.BoxGeometry(0.3, g.height, 0.42));
+      const capGeo = sharedGeo(new THREE.BoxGeometry(0.38, 0.26, 0.5));
+      const footGeo = sharedGeo(new THREE.BoxGeometry(0.42, 0.3, 0.6));
       for (const side of [-1, 1]) {
         const rail = new THREE.Mesh(railGeo, railMat);
-        rail.position.set(g.base.x + perp.x * 0.45 * side, g.base.y + g.height / 2, g.base.z + perp.z * 0.45 * side);
+        rail.position.copy(at(side, g.height / 2));
+        rail.rotation.y = -g.rotY;
         rail.castShadow = true;
         group.add(rail);
+        for (const [y, geo] of [[g.height + 0.1, capGeo], [0.02, footGeo]] as const) {
+          const end = new THREE.Mesh(geo, railMat);
+          end.position.copy(at(side, y));
+          end.rotation.y = -g.rotY;
+          group.add(end);
+        }
       }
-      const rungGeo = sharedGeo(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8));
-      for (let y = 0.4; y < g.height; y += 0.55) {
+      const rungGeo = sharedGeo(new THREE.CylinderGeometry(0.13, 0.13, HALF * 2, 10));
+      const gripGeo = sharedGeo(new THREE.CylinderGeometry(0.15, 0.15, 0.1, 10));
+      for (let y = 0.5; y < g.height - 0.2; y += 0.62) {
         const rung = new THREE.Mesh(rungGeo, rungMat);
         rung.position.set(g.base.x, g.base.y + y, g.base.z);
         rung.rotation.z = Math.PI / 2;
         rung.rotation.y = -g.rotY - Math.PI / 2;
+        rung.castShadow = true;
         group.add(rung);
+        for (const off of [-0.32, 0.32]) {
+          const grip = new THREE.Mesh(gripGeo, railMat);
+          grip.position.copy(at(0, y, 0)).addScaledVector(perp, off);
+          grip.rotation.z = Math.PI / 2;
+          grip.rotation.y = -g.rotY - Math.PI / 2;
+          group.add(grip);
+        }
+      }
+      // back braces, angled between the rails
+      const braceGeo = sharedGeo(new THREE.BoxGeometry(0.12, HALF * 2.4, 0.12));
+      for (let i = 0; i * 2.6 < g.height - 1.2; i++) {
+        const brace = new THREE.Mesh(braceGeo, railMat);
+        brace.position.copy(at(0, 1.0 + i * 2.6, -0.22));
+        brace.rotation.set(0, -g.rotY, i % 2 ? 0.72 : -0.72);
+        group.add(brace);
       }
       climbables.push({
         a: new THREE.Vector3(g.base.x, g.base.y, g.base.z),
@@ -377,6 +425,21 @@ export function buildLevel(
       });
     } else if (g.kind === 'rope') {
       buildRope(g.top, g.length);
+    } else if (g.kind === 'traverse') {
+      const rope = new TraverseRope(g.id, g.a, g.b, g.deckY, traverseMat);
+      group.add(rope.mesh);
+      traverses.push(rope);
+      // anchor knots + a stubby post at each end so the rope reads as tied off
+      for (const end of [g.a, g.b]) {
+        const knot = new THREE.Mesh(knotGeo, traverseMat);
+        knot.position.set(end.x, end.y, end.z);
+        group.add(knot);
+        const post = new THREE.Mesh(postGeo, railMat);
+        post.position.set(end.x, (end.y + g.deckY) / 2, end.z);
+        post.scale.y = Math.max(0.1, end.y - g.deckY) / 0.5;
+        post.castShadow = true;
+        group.add(post);
+      }
     }
   }
 
@@ -453,7 +516,12 @@ export function buildLevel(
     flagGeo.computeVertexNormals();
   };
 
+  const stepRopes = (dt: number, gravityScale: number) => {
+    for (const r of traverses) r.step(dt, gravityScale);
+  };
+
   const updateVisuals = (t: number) => {
+    for (const r of traverses) r.updateGeometry();
     for (const it of items.values()) {
       if (it.taken) continue;
       it.group.rotation.y = t * 1.4;
@@ -463,6 +531,7 @@ export function buildLevel(
   };
 
   const dispose = () => {
+    for (const r of traverses) r.dispose();
     scene.remove(group);
     group.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -477,10 +546,12 @@ export function buildLevel(
     bridges,
     bridgeByCollider,
     climbables,
+    traverses,
     plates,
     items,
     flagAnimate,
     addRope: buildRope,
+    stepRopes,
     updateVisuals,
     dispose,
   };

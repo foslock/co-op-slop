@@ -14,6 +14,17 @@ export const MOVE = {
   maxGapDown: 4.4, // edge-to-edge gap when landing lower
 };
 
+// Slack traverse ropes. The anchors sit just above the deck at each platform
+// edge and the middle sags into the gap, so crossing means dropping into the
+// dip and hauling yourself up the far side.
+export const TRAVERSE = {
+  anchorHeight: 0.45, // anchor knot height above the platform surface
+  slack: 0.14, // rope rest length = span * (1 + slack); drives how deep it sags
+  hangDrop: 0.95, // player body center below the rope point they're gripping
+  shimmySpeed: 2.6, // m/s along the rope
+  segments: 18,
+};
+
 export const PLAYER = {
   capsuleRadius: 0.32,
   capsuleHalfHeight: 0.34, // total height ~1.32m
