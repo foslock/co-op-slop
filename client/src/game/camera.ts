@@ -14,6 +14,7 @@ export class FollowCamera {
   yaw = 0;
   pitch = -0.25;
   zoom = 0; // 0..1 telescope zoom blend
+  private kick = 0; // extra field of view while falling or flying fast
   private smoothTarget = new THREE.Vector3();
   private initialized = false;
 
@@ -36,15 +37,21 @@ export class FollowCamera {
     );
   }
 
-  update(dt: number, target: THREE.Vector3, input: Input, zoomActive: boolean) {
+  update(dt: number, target: THREE.Vector3, input: Input, zoomActive: boolean, vy = 0) {
     const { dx, dy } = input.consumeMouse();
     const sens = SENS * (1 - this.zoom * 0.8);
     this.yaw -= dx * sens;
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy * sens, -1.25, 1.05);
 
     this.zoom += ((zoomActive ? 1 : 0) - this.zoom) * Math.min(1, 9 * dt);
-    this.camera.fov = THREE.MathUtils.lerp(BASE_FOV, ZOOM_FOV, this.zoom);
-    this.camera.updateProjectionMatrix();
+    // widen a touch at speed — a long fall or a catapult launch should feel fast
+    const kickTarget = THREE.MathUtils.clamp((Math.abs(vy) - 9) * 0.6, 0, 8);
+    this.kick += (kickTarget - this.kick) * Math.min(1, 4 * dt);
+    const fov = THREE.MathUtils.lerp(BASE_FOV + this.kick, ZOOM_FOV, this.zoom);
+    if (Math.abs(fov - this.camera.fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
 
     if (!this.initialized) {
       this.smoothTarget.copy(target);

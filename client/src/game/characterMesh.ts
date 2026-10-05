@@ -276,6 +276,20 @@ export function buildCharacter(cos: Cosmetics, nameLabel?: string, withLimbs = t
       root.rotation.set(lerp(0.14, -0.12, b), 0, 0);
       // stretch going up, squash coming down — classic cartoon weight
       stretchTarget = THREE.MathUtils.clamp(1 + vy * 0.012, 0.9, 1.1);
+    } else if (anim === ANIM.hang) {
+      // dangling from a ledge by both hands, legs kicking for a foothold
+      const kick = Math.sin(time * 9);
+      armL.rotation.x = -2.95;
+      armR.rotation.x = -2.95;
+      armL.rotation.z = -0.18;
+      armR.rotation.z = 0.18;
+      legL.rotation.x = kick * 0.55 + 0.1;
+      legR.rotation.x = -kick * 0.55 + 0.1;
+      footL.rotation.x = 0.4;
+      footR.rotation.x = 0.4;
+      root.position.y = Math.sin(time * 4.5) * 0.015;
+      root.rotation.set(0.08, 0, Math.sin(time * 2.3) * 0.07);
+      stretchTarget = 1.06;
     } else if (anim === ANIM.climb) {
       const ph = time * 6;
       const reach = Math.sin(ph);

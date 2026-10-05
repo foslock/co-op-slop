@@ -5,7 +5,7 @@ const RADIAL = 5; // sides of the rope tube
 const RADIUS = 0.07;
 const KNOT = 1.55; // radius multiplier at knot rings
 const DAMPING = 0.985;
-const ITERATIONS = 8;
+const ITERATIONS = 14;
 const SEGMENTS = TRAVERSE.segments;
 
 export type RopeKind =
@@ -40,8 +40,10 @@ export class Rope {
   span: number;
   /** Platform surface height at both ends (span ropes only). */
   deckY: number;
-  /** Where to step off when topping out a hanging rope. */
+  /** Where to step off when topping out a hanging rope (horizontal). */
   exitDir: THREE.Vector3 | null = null;
+  /** Standing spot you're set down on after topping out (hang) or reaching an end (span: [a end, b end]). */
+  exits: THREE.Vector3[] = [];
   mesh: THREE.Mesh;
 
   private nodes: THREE.Vector3[] = [];
@@ -125,7 +127,7 @@ export class Rope {
       const vz = (p.z - q.z) * DAMPING;
       q.copy(p);
       // nodes under the rider carry their weight, so the rope dips and swings there
-      const load = riderIdx < 0 ? 1 : 1 + 7 / (1 + Math.abs(i - riderIdx) * 2.2);
+      const load = riderIdx < 0 ? 1 : 1 + 5 / (1 + Math.abs(i - riderIdx) * 2.2);
       p.x += vx + swayAxis.x * sway;
       p.y += vy - g * load;
       p.z += vz + swayAxis.z * sway;
@@ -161,25 +163,51 @@ export class Rope {
     return out.subVectors(this.nodes[i], this.prev[i]).divideScalar(Math.max(1e-4, dt));
   }
 
-  /** Closest point on the rope to p — used for grabbing on. */
+  /**
+   * Closest point on the rope to p — used for grabbing on. Projects onto each
+   * segment rather than only testing the nodes: on a long grappling rope the
+   * nodes are metres apart, and hands right next to the rope would otherwise
+   * read as out of reach.
+   */
   nearest(p: THREE.Vector3): { s: number; dist: number } {
     let bestS = 0;
     let bestD = Infinity;
-    for (let i = 0; i <= SEGMENTS; i++) {
-      const d = this.nodes[i].distanceToSquared(p);
+    const seg = this.tmpA;
+    const rel = this.tmpB;
+    for (let i = 0; i < SEGMENTS; i++) {
+      const a = this.nodes[i];
+      seg.subVectors(this.nodes[i + 1], a);
+      const len2 = seg.lengthSq();
+      const t = len2 > 1e-8 ? THREE.MathUtils.clamp(rel.subVectors(p, a).dot(seg) / len2, 0, 1) : 0;
+      const d = rel.copy(a).addScaledVector(seg, t).distanceToSquared(p);
       if (d < bestD) {
         bestD = d;
-        bestS = i / SEGMENTS;
+        bestS = (i + t) / SEGMENTS;
       }
     }
     return { s: bestS, dist: Math.sqrt(bestD) };
   }
 
-  /** Span ropes: where you haul yourself up when you reach an end. */
+  /** Push the rope sideways around `s` — a climber pumping their legs to build a swing. */
+  pump(s: number, push: THREE.Vector3, dt: number) {
+    const idx = Math.round(THREE.MathUtils.clamp(s, 0, 1) * SEGMENTS);
+    for (let i = Math.max(1, idx - 2); i <= Math.min(SEGMENTS, idx + 1); i++) {
+      // more effect lower down, where a real rope swings freely
+      const w = (1 - Math.abs(i - idx) / 3) * (i / SEGMENTS);
+      this.prev[i].addScaledVector(push, -dt * dt * w);
+    }
+  }
+
+  /** Where you're set down when you climb off: the top for a hanging rope, the nearer end for a span. */
   exitPoint(s: number, out = new THREE.Vector3()): THREE.Vector3 {
+    if (this.kind === 'hang') {
+      if (this.exits[0]) return out.copy(this.exits[0]);
+      return out.copy(this.a).addScaledVector(this.exitDir ?? this.dir, 0.9).setY(this.a.y + 0.4);
+    }
+    const e = this.exits[s < 0.5 ? 0 : 1];
+    if (e) return out.copy(e);
     const end = s < 0.5 ? this.a : this.b;
-    const sign = s < 0.5 ? -1 : 1;
-    return out.copy(end).addScaledVector(this.dir, sign * 1.1).setY(this.deckY + 0.35);
+    return out.copy(end).addScaledVector(this.dir, s < 0.5 ? -1.1 : 1.1).setY(this.deckY + 0.35);
   }
 
   updateGeometry() {

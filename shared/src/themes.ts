@@ -94,6 +94,17 @@ reg(A('summit_pad', 1.2, 3.6, false, [
   ...rep(8, 0, Math.PI * 1.75, (t) => sph(0.13, 0.13, 0.13, Math.cos(t) * 3.6, 1.16, Math.sin(t) * 3.6, YELLOW)),
 ], [ccyl(4, 1.2, 0, 0.6, 0)]));
 
+// Co-op contraption base: a sturdy drum the seesaw is bolted to. Not part of
+// any theme's path list — the generator places it directly. The hazard stripes
+// around the rim flag it as a two-player spot from a distance.
+reg(A('coop_seesaw', 0.9, 3.0, false, [
+  cyl(3.2, 0.9, 0, 0.45, 0, 0x4a5568),
+  cyl(3.1, 0.08, 0, 0.92, 0, 0x5c677d),
+  tor(3.18, 0.1, 0, 0.9, 0, YELLOW, { rx: Math.PI / 2 }),
+  ...rep(12, 0, Math.PI * (22 / 12), (t, i) => box(0.9, 0.5, 0.06, Math.cos(t) * 3.21, 0.5, Math.sin(t) * 3.21, i % 2 ? YELLOW : CHARCOAL, { rz: 0 })),
+  tor(3.22, 0.08, 0, 0.12, 0, CHARCOAL, { rx: Math.PI / 2 }),
+], [ccyl(3.2, 0.9, 0, 0.45, 0)]));
+
 // ---- kitchen ----
 reg(A('k_pot', 1.5, 1.45, true, [
   cyl(1.6, 1.5, 0, 0.75, 0, STEEL),
@@ -1459,23 +1470,24 @@ export interface ThemeDef {
   finale: boolean; // the closing zones every run ends with
   pathProps: string[]; // archetype ids usable on the climbing path
   decorProps: string[]; // extra ids sprinkled around for atmosphere
+  flavor: string; // one-liner on the zone's title card
 }
 
 export const THEMES: ThemeDef[] = [
-  { id: 'basement', label: 'Basement', floor: 0, finale: false, pathProps: ['bs_crate', 'bs_boiler', 'bs_paint', 'bs_washer', 'bs_shelf', 'bs_pipe', 'bs_broom'], decorProps: ['bs_crate', 'bs_boiler', 'bs_shelf', 'bs_washer'] },
-  { id: 'garage', label: 'Garage', floor: 1, finale: false, pathProps: ['g_toolbox', 'g_tire', 'g_gascan', 'g_ladder', 'g_sawhorse', 'g_bolt'], decorProps: ['g_barrel', 'g_tire', 'g_toolbox'] },
-  { id: 'kitchen', label: 'Kitchen', floor: 2, finale: false, pathProps: ['k_pot', 'k_pan', 'k_mug', 'k_plates', 'k_board', 'k_milk', 'k_toaster', 'k_grater', 'k_cans', 'k_kettle'], decorProps: ['k_pot', 'k_mug', 'k_milk', 'k_plates', 'k_toaster', 'k_kettle'] },
-  { id: 'livingroom', label: 'Living Room', floor: 3, finale: false, pathProps: ['l_books', 'l_cushion', 'l_remote', 'l_lamp', 'l_pot', 'l_controller', 'l_speaker', 'l_coasters'], decorProps: ['l_frame', 'l_books', 'l_lamp', 'l_cushion', 'l_tv', 'l_speaker'] },
-  { id: 'library', label: 'Library', floor: 4, finale: false, pathProps: ['li_stack', 'li_openbook', 'li_lamp', 'li_inkwell', 'li_bookends', 'li_stool', 'li_scroll'], decorProps: ['li_stack', 'li_bookends', 'li_lamp'] },
-  { id: 'bedroom', label: 'Bedroom', floor: 5, finale: false, pathProps: ['b_pillow', 'b_clock', 'b_drawer', 'b_slipper', 'b_lamp2', 'b_tissue', 'b_hamper', 'b_teddy', 'b_jewelbox'], decorProps: ['b_pillow', 'b_clock', 'b_lamp2', 'b_teddy', 'b_hamper'] },
-  { id: 'bathroom', label: 'Bathroom', floor: 6, finale: false, pathProps: ['ba_soap', 'ba_duck', 'ba_cup', 'ba_towels', 'ba_shampoo', 'ba_tp', 'ba_sponge', 'ba_scale'], decorProps: ['ba_duck', 'ba_shampoo', 'ba_towels', 'ba_tp'] },
-  { id: 'office', label: 'Home Office', floor: 7, finale: false, pathProps: ['o_keyboard', 'o_laptop', 'o_pencilcup', 'o_globe', 'o_books', 'o_mug', 'o_stapler', 'o_paperstack', 'o_printer'], decorProps: ['o_globe', 'o_books', 'o_laptop', 'o_printer'] },
-  { id: 'attic', label: 'Attic', floor: 8, finale: false, pathProps: ['a_box', 'a_trunk', 'a_chair', 'a_cage', 'a_radio', 'a_records', 'a_suitcase', 'a_horse'], decorProps: ['a_box', 'a_trunk', 'a_radio', 'a_horse', 'a_records'] },
-  { id: 'backyard', label: 'Backyard', floor: 9, finale: false, pathProps: ['y_pot', 'y_can', 'y_gnome', 'y_mushroom', 'y_birdbath', 'y_hose', 'y_leaf'], decorProps: ['y_fence', 'y_pot', 'y_mushroom', 'y_birdbath'] },
-  { id: 'rooftop', label: 'Rooftop', floor: 10, finale: true, pathProps: ['r_chimney', 'r_ac', 'r_dish', 'r_shingle', 'r_vent', 'r_skylight', 'r_gutter', 'r_weathervane'], decorProps: ['r_chimney', 'r_dish', 'r_ac', 'r_weathervane'] },
-  { id: 'sky', label: 'Open Sky', floor: 11, finale: true, pathProps: ['s_cloud', 's_kite', 's_plane', 's_umbrella', 's_bubble', 's_frisbee'], decorProps: ['s_balloonbunch', 's_cloud', 's_kite', 's_windsock'] },
-  { id: 'stratosphere', label: 'Stratosphere', floor: 12, finale: true, pathProps: ['st_balloon', 'st_drone', 'st_panel', 'st_moon', 'st_probe', 'st_weatherbox'], decorProps: ['st_blimp', 'st_balloon', 'st_drone', 'st_probe'] },
-  { id: 'space', label: 'Deep Space', floor: 13, finale: true, pathProps: ['sp_sat', 'sp_junk', 'sp_rock', 'sp_tank', 'sp_capsule', 'sp_module', 'sp_rover'], decorProps: ['sp_sat', 'sp_rock', 'sp_junk', 'sp_module'] },
+  { id: 'basement', label: 'Basement', floor: 0, finale: false, pathProps: ['bs_crate', 'bs_boiler', 'bs_paint', 'bs_washer', 'bs_shelf', 'bs_pipe', 'bs_broom'], decorProps: ['bs_crate', 'bs_boiler', 'bs_shelf', 'bs_washer'], flavor: 'Mind the spiders. And the boiler.' },
+  { id: 'garage', label: 'Garage', floor: 1, finale: false, pathProps: ['g_toolbox', 'g_tire', 'g_gascan', 'g_ladder', 'g_sawhorse', 'g_bolt'], decorProps: ['g_barrel', 'g_tire', 'g_toolbox'], flavor: 'Smells like motor oil and ambition.' },
+  { id: 'kitchen', label: 'Kitchen', floor: 2, finale: false, pathProps: ['k_pot', 'k_pan', 'k_mug', 'k_plates', 'k_board', 'k_milk', 'k_toaster', 'k_grater', 'k_cans', 'k_kettle'], decorProps: ['k_pot', 'k_mug', 'k_milk', 'k_plates', 'k_toaster', 'k_kettle'], flavor: 'Something is definitely burning.' },
+  { id: 'livingroom', label: 'Living Room', floor: 3, finale: false, pathProps: ['l_books', 'l_cushion', 'l_remote', 'l_lamp', 'l_pot', 'l_controller', 'l_speaker', 'l_coasters'], decorProps: ['l_frame', 'l_books', 'l_lamp', 'l_cushion', 'l_tv', 'l_speaker'], flavor: 'The remote was down here all along.' },
+  { id: 'library', label: 'Library', floor: 4, finale: false, pathProps: ['li_stack', 'li_openbook', 'li_lamp', 'li_inkwell', 'li_bookends', 'li_stool', 'li_scroll'], decorProps: ['li_stack', 'li_bookends', 'li_lamp'], flavor: 'Shh. Climb quietly.' },
+  { id: 'bedroom', label: 'Bedroom', floor: 5, finale: false, pathProps: ['b_pillow', 'b_clock', 'b_drawer', 'b_slipper', 'b_lamp2', 'b_tissue', 'b_hamper', 'b_teddy', 'b_jewelbox'], decorProps: ['b_pillow', 'b_clock', 'b_lamp2', 'b_teddy', 'b_hamper'], flavor: 'Monsters under the bed? Climb faster.' },
+  { id: 'bathroom', label: 'Bathroom', floor: 6, finale: false, pathProps: ['ba_soap', 'ba_duck', 'ba_cup', 'ba_towels', 'ba_shampoo', 'ba_tp', 'ba_sponge', 'ba_scale'], decorProps: ['ba_duck', 'ba_shampoo', 'ba_towels', 'ba_tp'], flavor: 'Slippery when wet. Always wet.' },
+  { id: 'office', label: 'Home Office', floor: 7, finale: false, pathProps: ['o_keyboard', 'o_laptop', 'o_pencilcup', 'o_globe', 'o_books', 'o_mug', 'o_stapler', 'o_paperstack', 'o_printer'], decorProps: ['o_globe', 'o_books', 'o_laptop', 'o_printer'], flavor: 'Out of office. Way, way out.' },
+  { id: 'attic', label: 'Attic', floor: 8, finale: false, pathProps: ['a_box', 'a_trunk', 'a_chair', 'a_cage', 'a_radio', 'a_records', 'a_suitcase', 'a_horse'], decorProps: ['a_box', 'a_trunk', 'a_radio', 'a_horse', 'a_records'], flavor: 'Dusty treasures, creaky floorboards.' },
+  { id: 'backyard', label: 'Backyard', floor: 9, finale: false, pathProps: ['y_pot', 'y_can', 'y_gnome', 'y_mushroom', 'y_birdbath', 'y_hose', 'y_leaf'], decorProps: ['y_fence', 'y_pot', 'y_mushroom', 'y_birdbath'], flavor: 'Fresh air! Watch out for gnomes.' },
+  { id: 'rooftop', label: 'Rooftop', floor: 10, finale: true, pathProps: ['r_chimney', 'r_ac', 'r_dish', 'r_shingle', 'r_vent', 'r_skylight', 'r_gutter', 'r_weathervane'], decorProps: ['r_chimney', 'r_dish', 'r_ac', 'r_weathervane'], flavor: 'No more ceilings. Only sky.' },
+  { id: 'sky', label: 'Open Sky', floor: 11, finale: true, pathProps: ['s_cloud', 's_kite', 's_plane', 's_umbrella', 's_bubble', 's_frisbee'], decorProps: ['s_balloonbunch', 's_cloud', 's_kite', 's_windsock'], flavor: 'Clouds are softer than they look. Probably.' },
+  { id: 'stratosphere', label: 'Stratosphere', floor: 12, finale: true, pathProps: ['st_balloon', 'st_drone', 'st_panel', 'st_moon', 'st_probe', 'st_weatherbox'], decorProps: ['st_blimp', 'st_balloon', 'st_drone', 'st_probe'], flavor: 'The air is thin. So are the jumps.' },
+  { id: 'space', label: 'Deep Space', floor: 13, finale: true, pathProps: ['sp_sat', 'sp_junk', 'sp_rock', 'sp_tank', 'sp_capsule', 'sp_module', 'sp_rover'], decorProps: ['sp_sat', 'sp_rock', 'sp_junk', 'sp_module'], flavor: 'One small hop for a bean...' },
 ];
 
 /** Zones every run ends with, in order. */

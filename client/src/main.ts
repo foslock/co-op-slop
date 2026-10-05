@@ -105,7 +105,7 @@ function bindNet(n: Net) {
     if (appState === 'lobby') ui.updateLobby(players, hostId, myId, msg.seed);
   });
   n.on('starting', (msg) => {
-    void startGame(msg.seed);
+    void startGame(msg.seed, msg.teamSize ?? players.length);
   });
   n.on('go', (msg) => {
     if (!game) return;
@@ -124,7 +124,7 @@ function bindNet(n: Net) {
   });
 }
 
-async function startGame(seed: string) {
+async function startGame(seed: string, teamSize: number) {
   if (!net) return;
   appState = 'loading';
   teardownGame();
@@ -134,6 +134,7 @@ async function startGame(seed: string) {
     uiRoot,
     net,
     seed,
+    teamSize,
     players,
     myId,
     (info) => {

@@ -19,10 +19,19 @@ export const MOVE = {
 // dip and hauling yourself up the far side.
 export const TRAVERSE = {
   anchorHeight: 0.45, // anchor knot height above the platform surface
-  slack: 0.14, // rope rest length = span * (1 + slack); drives how deep it sags
+  slack: 0.05, // rope rest length = span * (1 + slack); drives how deep it sags
   hangDrop: 0.95, // player body center below the rope point they're gripping
-  shimmySpeed: 2.6, // m/s along the rope
+  shimmySpeed: 2.8, // m/s along the rope
   segments: 18,
+};
+
+// Catching the lip of a ledge you didn't quite clear (co-op runs only): hang on
+// while Shift is held, until a teammate pulls you up or your grip gives out.
+export const LEDGE = {
+  hangSeconds: 5,
+  reach: 0.95, // how far above your body center a ledge top can be and still be caught
+  helpRange: 1.9, // a helper must stand this close to the hanging player's hands
+  pullTime: 0.4, // seconds the mantle-up animation takes
 };
 
 export const PLAYER = {
@@ -58,7 +67,7 @@ export const COSMETIC_COLORS = [
 export const HATS = ['none', 'cap', 'cone', 'crown', 'chef', 'halo'] as const;
 export const EYES = ['round', 'happy', 'sleepy'] as const;
 
-export const ANIM = { idle: 0, run: 1, air: 2, climb: 3, ragdoll: 4 } as const;
+export const ANIM = { idle: 0, run: 1, air: 2, climb: 3, ragdoll: 4, hang: 5 } as const;
 
 // ---- altitude gravity ----
 // The air thins as you climb: gravity eases from 100% at ground level to 55%

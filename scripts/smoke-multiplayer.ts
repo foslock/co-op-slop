@@ -1,6 +1,8 @@
 // Protocol-level 2-player smoke test against a running server: npx tsx scripts/smoke-multiplayer.ts [port]
-// Creates a room, joins a second player, starts a run, presses a plate, transfers an
-// item, and finishes — asserting the key server broadcasts along the way.
+// Creates a room, joins a second player, starts a run, works the co-op contraptions
+// (twin bridge, crank lift, seesaw, ledge help), transfers an item, checks the
+// solo fallback when a teammate leaves, and finishes — asserting the key server
+// broadcasts along the way.
 import WebSocket from 'ws';
 import { generateLevel, type C2S, type S2C } from 'shared';
 
@@ -51,10 +53,13 @@ async function main() {
   const code = joinedA.code;
   console.log('room created:', code);
 
-  b.send({ t: 'join', code, name: 'bob', cos });
+  b.send({ t: 'join', code, name: 'bob<img src=x onerror=alert(1)>', cos });
   const joinedB = await b.expect('joined');
   b.id = joinedB.you;
   assert(joinedB.players.length === 2, 'bob sees 2 players');
+  const bobName = joinedB.players.find((p) => p.id === b.id)!.name;
+  assert(!/[<>]/.test(bobName), `markup stripped from nicknames (got "${bobName}")`);
+  console.log('nickname sanitized:', bobName);
 
   b.send({ t: 'ready', ready: true });
   await a.expect('lobby');
@@ -65,7 +70,9 @@ async function main() {
   assert(startingA.seed === 'smoketest' && startingB.seed === 'smoketest', 'both got the seed');
   console.log('game starting with seed:', startingA.seed);
 
-  const level = generateLevel('smoketest');
+  assert(startingA.teamSize === 2, 'team size announced with the seed');
+  const level = generateLevel('smoketest', startingA.teamSize);
+  assert(level.gadgets.some((g) => g.kind === 'seesaw' || g.kind === 'cranklift'), 'team level has co-op contraptions');
   a.send({ t: 'loaded' });
   b.send({ t: 'loaded' });
   const go = await a.expect('go');
@@ -97,6 +104,50 @@ async function main() {
     console.log('no bridge in this seed (skipping plate test)');
   }
 
+  // --- co-op contraptions ---
+  const drain = () => { a.inbox.length = 0; b.inbox.length = 0; };
+  const twin = level.gadgets.find((g) => g.kind === 'bridge' && g.mode === 'twin');
+  if (twin) {
+    drain();
+    a.send({ t: 'plate', gadget: twin.id, plate: 0, on: true });
+    let gs = await b.expect('gadget');
+    assert(!gs.state.active, 'twin bridge stays put with one plate');
+    b.send({ t: 'plate', gadget: twin.id, plate: 1, on: true });
+    gs = await a.expect('gadget');
+    while (!gs.state.active) gs = await a.expect('gadget');
+    assert(gs.state.latched, 'twin bridge latches with both plates pressed');
+    console.log(`twin bridge ${twin.id}: one plate → no, both → latched`);
+  }
+  const crank = level.gadgets.find((g) => g.kind === 'cranklift');
+  if (crank) {
+    drain();
+    a.send({ t: 'plate', gadget: crank.id, plate: 0, on: true });
+    let gs = await b.expect('gadget');
+    assert(gs.state.active, 'crank lift rises while its crank is held');
+    a.send({ t: 'plate', gadget: crank.id, plate: 0, on: false });
+    gs = await b.expect('gadget');
+    assert(gs.state.active, 'crank lift keeps going for a short grace period');
+    gs = await b.expect('gadget', 2000);
+    assert(!gs.state.active, 'crank lift sinks once nobody cranks');
+    console.log(`crank lift ${crank.id}: held → up, released → down after grace`);
+  }
+  const seesaw = level.gadgets.find((g) => g.kind === 'seesaw');
+  if (seesaw) {
+    drain();
+    a.send({ t: 'slam', gadget: seesaw.id, lever: false });
+    const l = await b.expect('launch');
+    assert(l.gadget === seesaw.id && l.by === a.id && !l.lever, 'seesaw launch broadcast');
+    a.send({ t: 'slam', gadget: seesaw.id, lever: true });
+    await new Promise((r) => setTimeout(r, 300));
+    assert(!b.inbox.some((m) => m.t === 'launch'), 'seesaw has a cooldown between flips');
+    console.log(`seesaw ${seesaw.id}: slam → launch, spam ignored`);
+  }
+  drain();
+  b.send({ t: 'help', target: a.id });
+  const help = await a.expect('help');
+  assert(help.from === b.id && help.target === a.id, 'ledge help relay');
+  console.log('ledge help relay OK');
+
   // --- items: pickup + give ---
   const item = level.items[0];
   a.send({ t: 'pickup', item: item.id });
@@ -125,19 +176,25 @@ async function main() {
   a.send({ t: 'flag' });
   const f1 = await b.expect('flag');
   assert(f1.done.length === 1, 'one finisher so far');
-  b.send({ t: 'flag' });
+  // bob holds the item alice gave him, then drops out: it goes back into the
+  // world, and alice — now alone — gets the solo fallback for co-op contraptions
+  b.ws.close();
+  const back = await a.expect('dropped');
+  assert(back.player === b.id, "a leaver's item is dropped back into the world");
+  const assist = await a.expect('assist');
+  assert(assist.on, 'lone climber gets the co-op fallback');
+  console.log('teammate left: item dropped, assist mode on');
   const fin = await a.expect('finish');
   assert(fin.durationMs > 0, 'duration recorded');
-  assert(fin.top.some((r) => r.names.includes('alice') && r.names.includes('bob')), 'run saved to leaderboard');
+  assert(fin.top.some((r) => r.names.includes('alice')), 'run saved to leaderboard');
   console.log(`finished in ${fin.durationMs}ms, rank ${fin.rank}, leaderboard rows: ${fin.top.length}`);
 
   // --- back to lobby ---
   a.send({ t: 'again' });
-  await b.expect('lobbyAgain');
+  await a.expect('lobbyAgain');
   console.log('play-again OK');
 
   a.ws.close();
-  b.ws.close();
   console.log('\nALL MULTIPLAYER CHECKS PASSED');
   process.exit(0);
 }

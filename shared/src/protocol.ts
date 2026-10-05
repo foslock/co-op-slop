@@ -16,9 +16,11 @@ export type C2S =
   | { t: 'pickup'; item: number }
   | { t: 'give'; to: string }
   | { t: 'drop'; p: [number, number, number] } // put the held item back in the world
-  | { t: 'grapple'; top: [number, number, number]; length: number }
+  | { t: 'grapple'; top: [number, number, number]; length: number; exit?: [number, number, number] }
   | { t: 'grab'; target: string; on: boolean }
   | { t: 'knock'; vel: [number, number, number] }
+  | { t: 'slam'; gadget: number; lever: boolean } // landed on a seesaw's slam end, or pulled its lever
+  | { t: 'help'; target: string } // pull a teammate hanging off a ledge back up
   | { t: 'ping' }
   | { t: 'flag' }
   | { t: 'again' } // host only: return everyone to the lobby
@@ -30,7 +32,7 @@ export type S2C =
   | { t: 'joined'; code: string; you: string; players: PlayerInfo[]; hostId: string; seed: string }
   | { t: 'lobby'; players: PlayerInfo[]; hostId: string; seed: string }
   | { t: 'error'; msg: string }
-  | { t: 'starting'; seed: string; now: number }
+  | { t: 'starting'; seed: string; teamSize: number; now: number }
   | { t: 'go'; now: number; startAt: number }
   | { t: 'S'; time: number; players: Record<string, [number, number, number, number, number, number]> } // x,y,z,yaw,anim,vy
   | { t: 'gadget'; id: number; state: GadgetState }
@@ -39,9 +41,12 @@ export type S2C =
   | { t: 'pickup'; player: string; item: number }
   | { t: 'item'; player: string; item: ItemType | null }
   | { t: 'dropped'; player: string; item: number; p: [number, number, number] }
-  | { t: 'rope'; top: [number, number, number]; length: number; by: string }
+  | { t: 'rope'; top: [number, number, number]; length: number; exit?: [number, number, number]; by: string }
   | { t: 'grab'; from: string; target: string; on: boolean }
   | { t: 'knock'; player: string; vel: [number, number, number] }
+  | { t: 'launch'; gadget: number; by: string; lever: boolean } // a seesaw flipped: whoever sits on its seat flies
+  | { t: 'help'; from: string; target: string }
+  | { t: 'assist'; on: boolean } // the team shrank to one climber: co-op contraptions work solo from now on
   | { t: 'ping'; player: string; p: [number, number, number] }
   | { t: 'flag'; player: string; done: string[] }
   | { t: 'finish'; durationMs: number; falls: Record<string, number>; rank: number | null; top: RunRow[] }

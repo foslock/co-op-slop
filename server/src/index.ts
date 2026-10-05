@@ -101,7 +101,7 @@ const server = http.createServer(async (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', 'http://x');
@@ -118,8 +118,11 @@ interface Conn {
   alive: boolean;
 }
 
+const conns = new Map<WebSocket, Conn>();
+
 wss.on('connection', (ws: WebSocket) => {
   const conn: Conn = { id: crypto.randomUUID().slice(0, 8), room: null, alive: true };
+  conns.set(ws, conn);
 
   ws.on('pong', () => { conn.alive = true; });
 
@@ -130,6 +133,7 @@ wss.on('connection', (ws: WebSocket) => {
     } catch {
       return;
     }
+    if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
     try {
       handleMessage(ws, conn, msg);
     } catch (err) {
@@ -138,6 +142,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('close', () => {
+    conns.delete(ws);
     conn.room?.removePlayer(conn.id);
     conn.room = null;
   });
@@ -176,9 +181,16 @@ function handleMessage(ws: WebSocket, conn: Conn, msg: C2S) {
   if (conn.room && player) conn.room.handle(player, msg);
 }
 
-// Heartbeat keeps proxies from idling out lobby connections.
+// Heartbeat keeps proxies from idling out lobby connections, and drops sockets
+// that stopped answering (a closed laptop lid) so their room seat frees up.
 setInterval(() => {
   for (const ws of wss.clients) {
+    const conn = conns.get(ws);
+    if (conn && !conn.alive) {
+      ws.terminate();
+      continue;
+    }
+    if (conn) conn.alive = false;
     ws.ping();
   }
 }, 30000);

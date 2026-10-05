@@ -87,7 +87,15 @@ export interface CheckpointData {
   rotY: number; // orientation of the arch/banner (aligned to the path's approach direction)
 }
 
-export type BridgeMode = 'latch' | 'hold' | 'duo';
+// latch: one press keeps it out for good · hold: out while a plate is pressed
+// (with a grace period) · duo: two climbers on the plate at once (co-op only) ·
+// twin: two plates on separate platforms pressed at the same time (co-op only)
+export type BridgeMode = 'latch' | 'hold' | 'duo' | 'twin';
+
+export type MoverMotion =
+  | 'shuttle' // ping-pongs horizontally across a gap
+  | 'lift' // ping-pongs vertically up a wall
+  | 'spinner'; // a long beam turning around its middle, bridging two platforms twice a turn
 
 export type GadgetData =
   | {
@@ -99,12 +107,50 @@ export type GadgetData =
       mode: BridgeMode;
       plates: Vec3[]; // standing positions of pressure plates
     }
-  | { kind: 'ladder'; id: number; base: Vec3; height: number; rotY: number }
-  | { kind: 'rope'; id: number; top: Vec3; length: number }
+  // A ladder leaning from the lower platform's edge up against the next prop.
+  // `exit` is where you're set down after climbing off the top.
+  | { kind: 'ladder'; id: number; base: Vec3; top: Vec3; rotY: number; exit: Vec3 }
+  | { kind: 'rope'; id: number; top: Vec3; length: number; exit: Vec3 }
   // A slack rope strung between two platform edges across an unjumpable gap.
   // Simulated as a verlet string on each client; you hang under it and shimmy
-  // across. `a`/`b` are the anchor knots, `deckY` the platform surface they sit on.
-  | { kind: 'traverse'; id: number; a: Vec3; b: Vec3; deckY: number };
+  // across. `a`/`b` are the anchor knots, `deckY` the platform surface they sit
+  // on, and `exitA`/`exitB` where you haul yourself up at each end.
+  | { kind: 'traverse'; id: number; a: Vec3; b: Vec3; deckY: number; exitA: Vec3; exitB: Vec3 }
+  // A deck that moves on the shared game clock (see shared/gadgets.ts moverPose).
+  | {
+      kind: 'mover';
+      id: number;
+      motion: MoverMotion;
+      a: Vec3; // deck top-center at one end of travel (spinner: the hub)
+      b: Vec3; // deck top-center at the other end (spinner: same as a)
+      size: [number, number, number]; // deck [length along rotY, thickness, width]
+      rotY: number; // deck heading (spinner: heading at t = 0)
+      period: number; // seconds per full cycle (there and back / one revolution)
+      phase: number; // 0..1 cycle offset
+      rest: number; // seconds parked at each end (ping-pong movers)
+      spin?: 1 | -1; // spinner turning direction
+    }
+  // Co-op: a plank on a fulcrum. Landing on the raised slam end flings whoever
+  // sits on the seat end up to `target`; the lever there drops a weight onto the
+  // slam end so the last climber can be launched too.
+  | {
+      kind: 'seesaw';
+      id: number;
+      pivot: Vec3; // fulcrum top, plank center
+      rotY: number; // plank heading from the seat end toward the slam end
+      target: Vec3; // landing spot for launched climbers (top surface)
+      lever: Vec3; // lever plate standing position, on the target platform
+    }
+  // Co-op: a lift that rises while somebody stands on a crank plate and sinks
+  // back when nobody does — so one climber has to stay behind to send it up.
+  | {
+      kind: 'cranklift';
+      id: number;
+      base: Vec3; // deck top-center at the bottom of the shaft
+      rise: number;
+      rotY: number; // heading from the lower platform toward the shaft
+      plates: Vec3[]; // [bottom crank, top crank] standing positions
+    };
 
 export type ItemType = 'doublejump' | 'telescope' | 'grapple';
 
@@ -124,6 +170,7 @@ export interface ZoneData {
 
 export interface LevelData {
   seed: string;
+  teamSize: number; // co-op contraptions only appear when this is 2 or more
   zones: ZoneData[];
   props: PropInstance[];
   gadgets: GadgetData[];
